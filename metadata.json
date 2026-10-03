@@ -1,0 +1,6 @@
+{
+  "name": "VoltElite",
+  "description": "EV Charging Super App to discover, compare, navigate to, and manage EV charging stations across networks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
