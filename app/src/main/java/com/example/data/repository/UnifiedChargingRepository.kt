@@ -52,12 +52,78 @@ class UnifiedChargingRepository(
 
     private suspend fun loadAllStations() {
         val aggregated = mutableListOf<ChargingStation>()
-        providers.forEach { provider ->
-            try {
-                val list = provider.getStations(22.7196, 75.8577, 100.0)
-                aggregated.addAll(list)
-            } catch (e: Exception) {
-                // Provider fault tolerance
+        try {
+            val api = com.example.data.network.VoltEliteApiClient.getService()
+            val response = api.getNearbyStations(22.7196, 75.8577, 100.0)
+            if (response.isSuccessful && response.body()?.data != null) {
+                val dtos = response.body()!!.data!!
+                for (dto in dtos) {
+                    val network = when (dto.operator.lowercase()) {
+                        "tata power" -> ChargingNetwork.TATA_POWER
+                        "chargezone" -> ChargingNetwork.CHARGE_ZONE
+                        "statiq" -> ChargingNetwork.STATIQ
+                        "jio-bp" -> ChargingNetwork.JIO_BP
+                        "zeon charging", "zeon" -> ChargingNetwork.ZEON
+                        "bpcl edrive", "bpcl" -> ChargingNetwork.BPCL
+                        "kazam" -> ChargingNetwork.KAZAM
+                        "ather grid", "ather" -> ChargingNetwork.ATHER_GRID
+                        else -> ChargingNetwork.TATA_POWER
+                    }
+                    val connectors = dto.chargers?.map { chg ->
+                        val connType = when {
+                            chg.connectorType.contains("Type 2", ignoreCase = true) -> ConnectorType.TYPE_2
+                            chg.connectorType.contains("CHAdeMO", ignoreCase = true) -> ConnectorType.CHADEMO
+                            chg.connectorType.contains("Bharat", ignoreCase = true) -> ConnectorType.BHARAT_DC_001
+                            else -> ConnectorType.CCS_2
+                        }
+                        ConnectorInfo(
+                            id = chg.id,
+                            type = connType,
+                            powerKw = chg.powerKw,
+                            status = if (chg.status == "AVAILABLE") StationStatus.AVAILABLE else StationStatus.BUSY,
+                            pricePerKwh = chg.pricePerKwh
+                        )
+                    } ?: listOf(
+                        ConnectorInfo("c1", ConnectorType.CCS_2, dto.maxPowerKw ?: 60, StationStatus.AVAILABLE, dto.pricePerKwh ?: 18.5)
+                    )
+
+                    aggregated.add(
+                        ChargingStation(
+                            id = dto.id,
+                            name = dto.name,
+                            network = network,
+                            latitude = dto.latitude,
+                            longitude = dto.longitude,
+                            address = dto.address,
+                            city = dto.city,
+                            distanceKm = dto.distanceKm ?: 2.5,
+                            etaMinutes = dto.etaMinutes ?: 10,
+                            rating = dto.rating ?: 4.8,
+                            reviewsCount = dto.reviewsCount ?: 120,
+                            pricePerKwh = dto.pricePerKwh ?: 18.5,
+                            status = if ((dto.totalAvailable ?: 1) > 0) StationStatus.AVAILABLE else StationStatus.BUSY,
+                            totalAvailable = dto.totalAvailable ?: 1,
+                            totalPorts = dto.totalPorts ?: 2,
+                            maxPowerKw = dto.maxPowerKw ?: 60,
+                            connectors = connectors,
+                            amenities = dto.amenities ?: listOf("Parking", "Cafeteria", "Wi-Fi"),
+                            openHours = dto.openHours ?: "24/7 Open"
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            // Backend offline - use local provider adapters seamlessly
+        }
+
+        if (aggregated.isEmpty()) {
+            providers.forEach { provider ->
+                try {
+                    val list = provider.getStations(22.7196, 75.8577, 100.0)
+                    aggregated.addAll(list)
+                } catch (e: Exception) {
+                    // Provider fault tolerance
+                }
             }
         }
         _allStations.value = aggregated
@@ -312,9 +378,46 @@ class UnifiedChargingRepository(
         startSimulationLoop(station.pricePerKwh)
     }
 
+    suspend fun syncChargingHistoryFromBackend() {
+        try {
+            val api = com.example.data.network.VoltEliteApiClient.getService()
+            val response = api.getChargingHistory()
+            if (response.isSuccessful && response.body()?.data != null) {
+                val list = response.body()!!.data!!
+                val dao = database.chargingSessionDao()
+                for (item in list) {
+                    dao.insertSession(
+                        ChargingSessionEntity(
+                            id = item.sessionId,
+                            stationId = "stn_01",
+                            stationName = item.stationName,
+                            networkName = item.operator,
+                            connectorType = item.connectorType,
+                            powerKw = item.powerKw,
+                            energyAddedKwh = item.energyConsumedKwh,
+                            totalCostRupees = item.totalCost,
+                            status = item.status,
+                            evseId = item.evseId,
+                            txnId = item.txnId ?: "TXN-BACKEND",
+                            paymentMethod = item.paymentMethod,
+                            durationMin = item.chargingDurationMinutes,
+                            tariffPerKwh = 18.5,
+                            timestamp = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            // Offline fallback
+        }
+    }
+
     fun startChargingSessionFromQr(charger: ParsedQrCharger, paymentMethod: PaymentMethod): ChargingSession {
+        val initialTxn = "TXN-${(100000..999999).random()}"
+        val initialId = "sess_${System.currentTimeMillis()}"
+
         val session = ChargingSession(
-            id = "sess_${System.currentTimeMillis()}",
+            id = initialId,
             stationId = charger.stationId,
             stationName = charger.stationName,
             network = charger.provider,
@@ -327,10 +430,47 @@ class UnifiedChargingRepository(
             estMinutesRemaining = 25,
             isLive = true,
             evseId = charger.evseId,
-            txnId = "TXN-${(100000..999999).random()}",
+            txnId = initialTxn,
             paymentMethodName = paymentMethod.title
         )
         _activeSession.value = session
+
+        // Connect with FastAPI backend asynchronously
+        coroutineScope.launch {
+            try {
+                val api = com.example.data.network.VoltEliteApiClient.getService()
+                val chargerId = if (charger.evseId.isNotBlank()) charger.evseId else "chg_idr_01_a"
+                val res = api.startCharging(
+                    com.example.data.network.StartChargingRequestDto(
+                        chargerId = chargerId,
+                        startPercentage = 68f,
+                        targetPercentage = 85f,
+                        paymentMethod = paymentMethod.title
+                    )
+                )
+                if (res.isSuccessful && res.body()?.data != null) {
+                    val backendSess = res.body()!!.data!!
+                    val realSessionId = backendSess.sessionId
+                    val realTxnId = backendSess.txnId ?: initialTxn
+                    _activeSession.value = _activeSession.value?.copy(
+                        id = realSessionId,
+                        txnId = realTxnId
+                    )
+                    // Connect WebSocket live telemetry stream
+                    com.example.data.network.VoltEliteApiClient.connectChargingWebSocket(realSessionId) { pct, energy, cost, status ->
+                        _activeSession.value = _activeSession.value?.copy(
+                            currentPercent = pct,
+                            energyAddedKwh = energy,
+                            totalCostRupees = cost,
+                            isLive = status == "CHARGING"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                // Fallback to local ticking simulation
+            }
+        }
+
         startSimulationLoop(charger.tariffPerKwh)
         return session
     }
@@ -362,8 +502,24 @@ class UnifiedChargingRepository(
         val current = _activeSession.value ?: return null
         _activeSession.value = current.copy(isLive = false)
 
+        var finalCost = current.totalCostRupees
+        val invoiceNum = "INV-${System.currentTimeMillis().toString().takeLast(8)}"
+
+        // Notify FastAPI backend
+        try {
+            val api = com.example.data.network.VoltEliteApiClient.getService()
+            val stopRes = api.stopCharging(current.id)
+            if (stopRes.isSuccessful && stopRes.body()?.data != null) {
+                val data = stopRes.body()!!.data!!
+                val costVal = (data["final_cost"] as? Number)?.toDouble()
+                if (costVal != null) finalCost = costVal
+            }
+        } catch (e: Exception) {
+            // Offline fallback
+        }
+
         val durationMin = 32
-        val tariffPerKwh = if (current.energyAddedKwh > 0) current.totalCostRupees / current.energyAddedKwh else 18.5
+        val tariffPerKwh = if (current.energyAddedKwh > 0) finalCost / current.energyAddedKwh else 18.5
 
         val receipt = ChargingReceipt(
             sessionId = current.id,
@@ -375,11 +531,11 @@ class UnifiedChargingRepository(
             powerKw = current.powerKw,
             energyDeliveredKwh = current.energyAddedKwh,
             chargingTimeMinutes = durationMin,
-            totalAmountRupees = current.totalCostRupees,
+            totalAmountRupees = finalCost,
             tariffPerKwh = (tariffPerKwh * 10).toInt() / 10.0,
             paymentMethod = current.paymentMethodName,
-            timestampFormatted = "03 Oct 2026, 06:15 PM",
-            invoiceNumber = "INV-${System.currentTimeMillis().toString().takeLast(8)}"
+            timestampFormatted = "06 Oct 2026, 10:45 AM",
+            invoiceNumber = invoiceNum
         )
 
         // Save session record to database
@@ -392,7 +548,7 @@ class UnifiedChargingRepository(
                 connectorType = current.connectorType.displayName,
                 powerKw = current.powerKw,
                 energyAddedKwh = current.energyAddedKwh,
-                totalCostRupees = current.totalCostRupees,
+                totalCostRupees = finalCost,
                 status = "Completed",
                 evseId = current.evseId,
                 txnId = current.txnId,

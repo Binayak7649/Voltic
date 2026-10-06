@@ -101,4 +101,10 @@ class ExampleUnitTest {
         val verifiedMismatch = qrService.verifyCharger(ccsCharger, type2Vehicle)
         assertFalse(verifiedMismatch.compatibility.isCompatible)
     }
+
+    @Test
+    fun testVoltEliteApiClientConfiguration() {
+        assertEquals("http://10.0.2.2:8001/", com.example.data.network.VoltEliteApiClient.baseUrl)
+        assertNotNull(com.example.data.network.VoltEliteApiClient.getService())
+    }
 }

@@ -1,0 +1,9 @@
+[
+  "backend/tests/test_api.py::test_analytics",
+  "backend/tests/test_api.py::test_login_flow",
+  "backend/tests/test_api.py::test_nearby_stations",
+  "backend/tests/test_api.py::test_qr_verification_incompatible",
+  "backend/tests/test_api.py::test_qr_verification_valid",
+  "backend/tests/test_api.py::test_root_endpoint",
+  "backend/tests/test_api.py::test_start_and_stop_charging_workflow"
+]

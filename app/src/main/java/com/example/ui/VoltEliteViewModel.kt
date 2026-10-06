@@ -257,34 +257,45 @@ class VoltEliteViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun verifyOtp(enteredCode: String) {
-        viewModelScope.launch {
-            _isOtpVerifying.value = true
-            delay(800) // Realistic secure verification
-            _isOtpVerifying.value = false
-            _isAuthenticated.value = true
-            navigateTo(Screen.MAIN)
-        }
+        loginWithBackend("demo@voltelite.app", "Password123!")
     }
 
     fun loginWithGoogle() {
-        viewModelScope.launch {
-            _isAuthenticated.value = true
-            _userProfile.value = UserProfile(
-                name = "Binayak Tiwari",
-                email = "binayaktiwari77@gmail.com",
-                isGoogleLinked = true
-            )
-            navigateTo(Screen.MAIN)
-        }
+        loginWithBackend("demo@voltelite.app", "Password123!")
     }
 
     fun exploreAsGuest() {
-        _isAuthenticated.value = true
-        navigateTo(Screen.MAIN)
+        loginWithBackend("demo@voltelite.app", "Password123!")
+    }
+
+    fun loginWithBackend(email: String = "demo@voltelite.app", pass: String = "Password123!") {
+        viewModelScope.launch {
+            _isOtpVerifying.value = true
+            try {
+                val api = com.example.data.network.VoltEliteApiClient.getService()
+                val res = api.login(com.example.data.network.LoginRequestDto(email, pass))
+                if (res.isSuccessful && res.body()?.data != null) {
+                    val tokenData = res.body()!!.data!!
+                    com.example.data.network.VoltEliteApiClient.authToken = tokenData.accessToken
+                }
+            } catch (e: Exception) {
+                // Ignore if offline
+            }
+            _isOtpVerifying.value = false
+            _isAuthenticated.value = true
+            _userProfile.value = UserProfile(
+                name = "Binayak Tiwari",
+                email = email,
+                isGoogleLinked = true
+            )
+            repository.syncChargingHistoryFromBackend()
+            navigateTo(Screen.MAIN)
+        }
     }
 
     fun logout() {
         _isAuthenticated.value = false
+        com.example.data.network.VoltEliteApiClient.authToken = null
         navigateTo(Screen.WELCOME)
     }
 
@@ -352,23 +363,82 @@ class VoltEliteViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun processQrCode(payload: String) {
         _qrErrorMessage.value = null
-        val parseResult = qrService.parseQr(payload)
-        parseResult.onSuccess { parsed ->
-            val defaultVehicle = EvVehicle(
-                id = "veh_01",
-                make = "Tata",
-                model = "Nexon EV",
-                batteryCapacityKwh = 40.5,
-                realWorldRangeKm = 312,
-                connectorType = ConnectorType.CCS_2,
-                currentBatteryPercent = 68,
-                isDefault = true
-            )
-            val verification = qrService.verifyCharger(parsed, defaultVehicle)
-            _chargerVerification.value = verification
-            navigateTo(Screen.CHARGER_VERIFICATION)
-        }.onFailure { error ->
-            _qrErrorMessage.value = error.message ?: "Unable to read QR code. Please try again or enter Charger ID manually."
+        viewModelScope.launch {
+            try {
+                val api = com.example.data.network.VoltEliteApiClient.getService()
+                val response = api.verifyQR(
+                    com.example.data.network.QRVerifyRequestDto(
+                        qrPayload = payload,
+                        vehicleMakeModel = "Tata Nexon EV",
+                        vehicleConnector = "CCS 2"
+                    )
+                )
+                if (response.isSuccessful && response.body()?.data != null) {
+                    val data = response.body()!!.data!!
+                    val network = when (data.operator.lowercase()) {
+                        "chargezone" -> ChargingNetwork.CHARGE_ZONE
+                        "statiq" -> ChargingNetwork.STATIQ
+                        "jio-bp" -> ChargingNetwork.JIO_BP
+                        "zeon", "zeon charging" -> ChargingNetwork.ZEON
+                        "bpcl", "bpcl edrive" -> ChargingNetwork.BPCL
+                        "kazam" -> ChargingNetwork.KAZAM
+                        "ather grid", "ather" -> ChargingNetwork.ATHER_GRID
+                        else -> ChargingNetwork.TATA_POWER
+                    }
+                    val connType = if (data.connectorType.contains("Type 2", ignoreCase = true)) ConnectorType.TYPE_2 else ConnectorType.CCS_2
+                    val parsed = ParsedQrCharger(
+                        provider = network,
+                        stationId = data.stationId,
+                        stationName = data.stationName,
+                        evseId = data.evseId,
+                        connectorId = data.chargerId,
+                        connectorType = connType,
+                        powerKw = data.powerKw,
+                        tariffPerKwh = data.tariffPerKwh,
+                        location = data.location,
+                        status = if (data.status == "AVAILABLE") StationStatus.AVAILABLE else StationStatus.BUSY,
+                        supportsRemoteStart = data.supportsRemoteStart,
+                        rawPayload = payload
+                    )
+                    val compat = VehicleCompatibility(
+                        isCompatible = data.compatibility.isCompatible,
+                        userVehicleMakeModel = data.compatibility.userVehicleMakeModel,
+                        userVehicleConnector = ConnectorType.CCS_2,
+                        chargerConnector = connType,
+                        message = data.compatibility.message
+                    )
+                    _chargerVerification.value = ChargerVerificationResult(
+                        charger = parsed,
+                        compatibility = compat,
+                        estimatedFullCost = data.estimatedFullCost,
+                        estimatedDurationMin = data.estimatedDurationMin
+                    )
+                    navigateTo(Screen.CHARGER_VERIFICATION)
+                    return@launch
+                }
+            } catch (e: Exception) {
+                // Offline fallback
+            }
+
+            // Local fallback parser
+            val parseResult = qrService.parseQr(payload)
+            parseResult.onSuccess { parsed ->
+                val defaultVehicle = EvVehicle(
+                    id = "veh_01",
+                    make = "Tata",
+                    model = "Nexon EV",
+                    batteryCapacityKwh = 40.5,
+                    realWorldRangeKm = 312,
+                    connectorType = ConnectorType.CCS_2,
+                    currentBatteryPercent = 68,
+                    isDefault = true
+                )
+                val verification = qrService.verifyCharger(parsed, defaultVehicle)
+                _chargerVerification.value = verification
+                navigateTo(Screen.CHARGER_VERIFICATION)
+            }.onFailure { error ->
+                _qrErrorMessage.value = error.message ?: "Unable to read QR code. Please try again or enter Charger ID manually."
+            }
         }
     }
 
