@@ -12,9 +12,15 @@ router = APIRouter(prefix="/qr", tags=["QR Verification"])
 @router.post("/verify")
 def verify_qr(req: QRVerifyRequest, db: Session = Depends(get_db)):
     parsed = QRParser.parse_payload(req.qr_payload)
+    if not parsed.get("is_valid", True):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=parsed.get("error", "Invalid or unsupported EV charger QR code. Please retry scan.")
+        )
+
     evse_id = parsed.get("evse_id")
 
-    # Find charger in database
+    # Match scanned charger safely with the correct station and connector in backend
     charger = None
     if evse_id:
         charger = db.query(Charger).filter(
@@ -23,18 +29,16 @@ def verify_qr(req: QRVerifyRequest, db: Session = Depends(get_db)):
             (Charger.id == evse_id)
         ).first()
 
-    # Fallback to demo default EVSE-08 if not directly matched by raw code
     if not charger:
-        charger = db.query(Charger).filter(Charger.charger_code == "EVSE-08").first()
-
-    if not charger:
-        # Get any first available charger
-        charger = db.query(Charger).first()
-
-    if not charger or not charger.is_active:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Charger hardware not recognized or inactive."
+            detail=f"No charging connector found matching '{evse_id or req.qr_payload[:20]}'. Please scan an authorized charger QR code or select a preset."
+        )
+
+    if not charger.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Charger connector {charger.charger_code} is currently inactive or under maintenance."
         )
 
     station = db.query(Station).filter(Station.id == charger.station_id).first()

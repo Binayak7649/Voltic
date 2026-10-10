@@ -254,6 +254,59 @@ fun ChargingSessionScreen(
                 }
             }
         }
+
+        // Authoritative Session & Hardware Information
+        item {
+            Spacer(modifier = Modifier.height(14.dp))
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(1.dp, VoltCardBorder, RoundedCornerShape(16.dp)),
+                colors = CardDefaults.cardColors(containerColor = VoltCard)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Hardware & Protocol Details",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = VoltTextPrimary
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (activeSession?.isDemo == true) VoltCyan.copy(alpha = 0.15f) else VoltGreen.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = if (activeSession?.isDemo == true) "DEMO SIMULATION" else "OCPP / OCPI LIVE",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (activeSession?.isDemo == true) VoltCyan else VoltGreen,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    SessionDetailRow(label = "Session ID", value = activeSession?.id ?: "sess_live_01")
+                    SessionDetailRow(label = "Transaction ID", value = activeSession?.txnId ?: "TXN-839201")
+                    SessionDetailRow(label = "EVSE / Charger ID", value = activeSession?.evseId ?: "EVSE-08")
+                    SessionDetailRow(label = "Provider Network", value = activeSession?.providerName ?: "VoltElite Network")
+                    SessionDetailRow(label = "Connector Type", value = activeSession?.connectorType?.displayName ?: "CCS 2")
+                    SessionDetailRow(label = "Live Power Output", value = "$powerKw kW DC")
+                    SessionDetailRow(label = "Payment Source", value = activeSession?.paymentMethodName ?: "UPI")
+                }
+            }
+        }
     }
 
     if (showStopDialog) {
@@ -344,5 +397,24 @@ private fun TelemetryCard(
                 maxLines = 1
             )
         }
+    }
+}
+
+@Composable
+private fun SessionDetailRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = label, fontSize = 12.sp, color = VoltTextSecondary)
+        Text(
+            text = value,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = VoltTextPrimary
+        )
     }
 }

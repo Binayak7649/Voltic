@@ -88,6 +88,11 @@ class VoltEliteViewModel(application: Application) : AndroidViewModel(applicatio
     val bookmarkedIds: StateFlow<List<String>> = repository.bookmarkedIds
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // High performance Set for O(1) recomposition checks in list items
+    val bookmarkedIdsSet: StateFlow<Set<String>> = repository.bookmarkedIds
+        .map { it.toSet() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
     val allStations: StateFlow<List<ChargingStation>> = repository.allStations
     val activeSession: StateFlow<ChargingSession?> = repository.activeSession
 
@@ -107,6 +112,15 @@ class VoltEliteViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val _selectedConnectorFilter = MutableStateFlow<ConnectorType?>(null)
     val selectedConnectorFilter: StateFlow<ConnectorType?> = _selectedConnectorFilter.asStateFlow()
+
+    private val _carsOnlyFilter = MutableStateFlow(true)
+    val carsOnlyFilter: StateFlow<Boolean> = _carsOnlyFilter.asStateFlow()
+
+    private val _userLocation = MutableStateFlow<Pair<Double, Double>?>(Pair(22.7196, 75.8577))
+    val userLocation: StateFlow<Pair<Double, Double>?> = _userLocation.asStateFlow()
+
+    private val _isMapRefreshing = MutableStateFlow(false)
+    val isMapRefreshing: StateFlow<Boolean> = _isMapRefreshing.asStateFlow()
 
     // Route Planner State
     private val _routeOrigin = MutableStateFlow("Indore, Madhya Pradesh")
@@ -151,17 +165,28 @@ class VoltEliteViewModel(application: Application) : AndroidViewModel(applicatio
     private val _qrErrorMessage = MutableStateFlow<String?>(null)
     val qrErrorMessage: StateFlow<String?> = _qrErrorMessage.asStateFlow()
 
+    private val _isStartingCharging = MutableStateFlow(false)
+    val isStartingCharging: StateFlow<Boolean> = _isStartingCharging.asStateFlow()
+
+    private val _startChargingError = MutableStateFlow<String?>(null)
+    val startChargingError: StateFlow<String?> = _startChargingError.asStateFlow()
+
+    fun dismissStartChargingError() {
+        _startChargingError.value = null
+    }
+
     val pastSessions: StateFlow<List<ChargingSessionEntity>> = repository.pastSessions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
-        // Initial splash timer
+        // Fast, responsive splash transition
         viewModelScope.launch {
-            delay(1600)
+            delay(650)
             if (_currentScreen.value == Screen.SPLASH) {
                 _currentScreen.value = Screen.WELCOME
             }
         }
+
 
         // Default initial selected station (Tata Power)
         viewModelScope.launch {
@@ -173,30 +198,92 @@ class VoltEliteViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    // Filtered Stations computation
-    val filteredStations: StateFlow<List<ChargingStation>> = combine(
-        allStations,
+    data class StationFilterParams(
+        val query: String,
+        val network: ChargingNetwork?,
+        val fastOnly: Boolean,
+        val connector: ConnectorType?,
+        val carsOnly: Boolean
+    )
+
+    private val filterParams: Flow<StationFilterParams> = combine(
         _searchQuery,
         _selectedNetworkFilter,
         _onlyFastChargers,
-        _selectedConnectorFilter
-    ) { stations, query, network, fastOnly, connector ->
+        _selectedConnectorFilter,
+        _carsOnlyFilter
+    ) { query, network, fastOnly, connector, carsOnly ->
+        StationFilterParams(query, network, fastOnly, connector, carsOnly)
+    }
+
+    // Filtered Stations computation
+    val filteredStations: StateFlow<List<ChargingStation>> = combine(
+        allStations,
+        filterParams
+    ) { stations, params ->
         stations.filter { station ->
-            val matchesQuery = query.isBlank() ||
-                    station.name.contains(query, ignoreCase = true) ||
-                    station.address.contains(query, ignoreCase = true) ||
-                    station.network.displayName.contains(query, ignoreCase = true) ||
-                    station.city.contains(query, ignoreCase = true)
+            val matchesQuery = params.query.isBlank() ||
+                    station.name.contains(params.query, ignoreCase = true) ||
+                    station.address.contains(params.query, ignoreCase = true) ||
+                    station.network.displayName.contains(params.query, ignoreCase = true) ||
+                    station.city.contains(params.query, ignoreCase = true)
 
-            val matchesNetwork = network == null || station.network == network
-            val matchesFast = !fastOnly || station.maxPowerKw >= 50
-            val matchesConnector = connector == null || station.connectors.any { it.type == connector }
+            val matchesNetwork = params.network == null || station.network == params.network
+            val matchesFast = !params.fastOnly || station.maxPowerKw >= 50
+            val matchesConnector = params.connector == null || station.connectors.any { it.type == params.connector }
+            val matchesCarOnly = !params.carsOnly || (station.isCarCompatible && station.connectors.any {
+                it.type == ConnectorType.CCS_2 || it.type == ConnectorType.TYPE_2 || it.powerKw >= 7
+            })
 
-            matchesQuery && matchesNetwork && matchesFast && matchesConnector
+            matchesQuery && matchesNetwork && matchesFast && matchesConnector && matchesCarOnly
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private var locationRefreshJob: Job? = null
+    private var activeRefreshJob: Job? = null
+    private var lastLoadedLocation: Pair<Double, Double>? = null
+
     // Actions
+    fun setCarsOnlyFilter(enabled: Boolean) {
+        _carsOnlyFilter.value = enabled
+        refreshNearbyStations()
+    }
+
+    fun updateUserLocation(lat: Double, lon: Double) {
+        _userLocation.value = Pair(lat, lon)
+        // Check if movement is significant (> 100 meters, approx 0.001 deg)
+        val last = lastLoadedLocation
+        if (last != null) {
+            val dLat = Math.abs(last.first - lat)
+            val dLon = Math.abs(last.second - lon)
+            if (dLat < 0.001 && dLon < 0.001) {
+                return
+            }
+        }
+        locationRefreshJob?.cancel()
+        locationRefreshJob = viewModelScope.launch {
+            delay(350) // Debounce rapid GPS callbacks
+            lastLoadedLocation = Pair(lat, lon)
+            refreshNearbyStations(lat, lon)
+        }
+    }
+
+    fun refreshNearbyStations(
+        lat: Double = _userLocation.value?.first ?: 22.7196,
+        lon: Double = _userLocation.value?.second ?: 75.8577,
+        radiusKm: Double = 50.0
+    ) {
+        activeRefreshJob?.cancel() // Cancel obsolete network requests when map area changes
+        activeRefreshJob = viewModelScope.launch {
+            _isMapRefreshing.value = true
+            try {
+                repository.loadNearbyStations(lat, lon, radiusKm, _carsOnlyFilter.value)
+            } finally {
+                _isMapRefreshing.value = false
+            }
+        }
+    }
+
     fun navigateTo(screen: Screen) {
         _currentScreen.value = screen
     }
@@ -325,12 +412,36 @@ class VoltEliteViewModel(application: Application) : AndroidViewModel(applicatio
         _tripEstimate.value = repository.estimateTrip(distance, range, 68)
     }
 
-    // Charging Session Actions
     fun startCharging(station: ChargingStation) {
         val connector = station.connectors.firstOrNull { it.status == StationStatus.AVAILABLE }
             ?: station.connectors.first()
-        repository.startChargingSession(station, connector)
-        navigateTo(Screen.CHARGING_SESSION)
+        val parsed = ParsedQrCharger(
+            provider = station.network,
+            stationId = station.id,
+            stationName = station.name,
+            evseId = "${station.network.name.take(3).uppercase()}-${station.id.takeLast(4)}",
+            connectorId = connector.type.displayName,
+            connectorType = connector.type,
+            powerKw = connector.powerKw,
+            tariffPerKwh = station.pricePerKwh,
+            location = station.address,
+            status = connector.status,
+            supportsRemoteStart = true,
+            rawPayload = "volt-elite://charge?station=${station.id}&evse=${station.id.takeLast(4)}&connector=${connector.type.name}"
+        )
+        val defaultVehicle = EvVehicle(
+            id = "veh_01",
+            make = "Tata",
+            model = "Nexon EV",
+            batteryCapacityKwh = 40.5,
+            realWorldRangeKm = 312,
+            connectorType = ConnectorType.CCS_2,
+            currentBatteryPercent = 68,
+            isDefault = true
+        )
+        val verification = qrService.verifyCharger(parsed, defaultVehicle)
+        _chargerVerification.value = verification
+        navigateTo(Screen.CHARGER_VERIFICATION)
     }
 
     fun stopCharging() {
@@ -446,11 +557,28 @@ class VoltEliteViewModel(application: Application) : AndroidViewModel(applicatio
         _selectedPaymentMethod.value = method
     }
 
-    fun confirmStartChargingFromQr() {
+    fun confirmStartChargingFromQr(isDemo: Boolean = false) {
         val verification = _chargerVerification.value ?: return
+        if (_isStartingCharging.value) return
+
         val charger = verification.charger
-        repository.startChargingSessionFromQr(charger, _selectedPaymentMethod.value)
-        navigateTo(Screen.CHARGING_SESSION)
+        _isStartingCharging.value = true
+        _startChargingError.value = null
+
+        viewModelScope.launch {
+            try {
+                val result = repository.startChargingSessionFromQr(charger, _selectedPaymentMethod.value, isDemo)
+                _isStartingCharging.value = false
+                result.onSuccess {
+                    navigateTo(Screen.CHARGING_SESSION)
+                }.onFailure { error ->
+                    _startChargingError.value = error.message ?: "Provider authorization rejected."
+                }
+            } catch (e: Exception) {
+                _isStartingCharging.value = false
+                _startChargingError.value = e.message ?: "Failed to contact charging provider."
+            }
+        }
     }
 
     fun stopChargingAndShowReceipt() {

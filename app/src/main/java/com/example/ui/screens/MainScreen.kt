@@ -21,6 +21,8 @@ fun MainScreen(
     val currentTab by viewModel.currentTab.collectAsState()
     val allStations by viewModel.filteredStations.collectAsState()
     val selectedStation by viewModel.selectedStation.collectAsState()
+    val userLocation by viewModel.userLocation.collectAsState()
+    val carsOnlyFilter by viewModel.carsOnlyFilter.collectAsState()
 
     BackHandler(enabled = currentTab != MainTab.HOME) {
         viewModel.setTab(MainTab.HOME)
@@ -48,6 +50,10 @@ fun MainScreen(
                     InteractiveChargerMap(
                         stations = allStations,
                         selectedStation = selectedStation,
+                        userLocation = userLocation,
+                        carsOnlyFilter = carsOnlyFilter,
+                        onCarsOnlyToggle = { viewModel.setCarsOnlyFilter(it) },
+                        onRefreshLocation = { lat, lon -> viewModel.updateUserLocation(lat, lon) },
                         onStationSelect = { viewModel.selectStation(it) },
                         onNavigateClick = {
                             viewModel.selectStation(it)

@@ -1,6 +1,6 @@
 from datetime import datetime
 import enum
-from sqlalchemy import Column, String, Float, DateTime, Integer, ForeignKey, Enum
+from sqlalchemy import Column, String, Float, DateTime, Integer, ForeignKey, Enum, Boolean
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -32,11 +32,17 @@ class ChargingSession(Base):
     
     # Financials
     tariff_per_kwh = Column(Float, default=18.5)
+    session_fee = Column(Float, default=0.0)
     estimated_cost = Column(Float, default=0.0)
     final_cost = Column(Float, default=0.0)
     evse_id = Column(String, default="EVSE-08")
     txn_id = Column(String, nullable=True)
     payment_method = Column(String, default="UPI")
+
+    # Architecture & Demo tracking
+    is_demo = Column(Boolean, default=False)
+    idempotency_key = Column(String, nullable=True, index=True)
+    provider_name = Column(String, default="Simulation")
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

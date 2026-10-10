@@ -29,14 +29,81 @@ import com.example.ui.Screen
 import com.example.ui.VoltEliteViewModel
 import com.example.ui.theme.*
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.outlined.*
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+
 @Composable
 fun ProfileScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val user by viewModel.userProfile.collectAsState()
-    val notifications by viewModel.notifications.collectAsState()
-    val unreadCount = notifications.count { !it.isRead }
+    val user by viewModel.userProfile.collectAsStateWithLifecycle()
+    val notifications by viewModel.notifications.collectAsStateWithLifecycle()
+    val pastSessions by viewModel.pastSessions.collectAsStateWithLifecycle()
+    val unreadCount = remember(notifications) { notifications.count { !it.isRead } }
+
+    var showExportDialog by remember { mutableStateOf(false) }
+    var exportSuccessMessage by remember { mutableStateOf<String?>(null) }
+    val clipboardManager = LocalClipboardManager.current
+
+    if (showExportDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportDialog = false },
+            title = {
+                Text("Export Customer Data", fontWeight = FontWeight.Bold, color = VoltTextPrimary)
+            },
+            text = {
+                Column {
+                    Text(
+                        "Export complete charging logs, invoice records, and vehicle data in CSV format for compliance and reimbursement.",
+                        color = VoltTextSecondary,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Total records ready: ${pastSessions.size} sessions",
+                        color = VoltGreen,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val csvBuilder = StringBuilder()
+                        csvBuilder.append("Session ID,Station Name,Network,Connector,Power (kW),Energy (kWh),Duration (min),Total Cost (INR),Status,Date\n")
+                        pastSessions.forEach { s ->
+                            csvBuilder.append("\"${s.id}\",\"${s.stationName}\",\"${s.networkName}\",\"${s.connectorType}\",${s.powerKw},${s.energyAddedKwh},${s.durationMin},${s.totalCostRupees},\"${s.status}\",\"${s.timestamp}\"\n")
+                        }
+                        clipboardManager.setText(AnnotatedString(csvBuilder.toString()))
+                        showExportDialog = false
+                        exportSuccessMessage = "Exported ${pastSessions.size} records to clipboard as CSV!"
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = VoltGreen)
+                ) {
+                    Text("Copy CSV to Clipboard", color = VoltDarkBg, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExportDialog = false }) {
+                    Text("Cancel", color = VoltTextSecondary)
+                }
+            },
+            containerColor = VoltCard,
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (exportSuccessMessage != null) {
+        LaunchedEffect(exportSuccessMessage) {
+            kotlinx.coroutines.delay(3500)
+            exportSuccessMessage = null
+        }
+    }
 
     LazyColumn(
         modifier = modifier
@@ -47,6 +114,27 @@ fun ProfileScreen(
         contentPadding = PaddingValues(bottom = 90.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Success banner if export succeeded
+        if (exportSuccessMessage != null) {
+            item {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = VoltGreen.copy(alpha = 0.2f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, VoltGreen),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = VoltGreen, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(exportSuccessMessage!!, color = VoltTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
         // 1. User Header
         item {
             Row(
@@ -185,7 +273,13 @@ fun ProfileScreen(
                     )
                     ProfileDivider()
                     ProfileMenuItem(
-                        icon = Icons.Outlined.HelpOutline,
+                        icon = Icons.Outlined.FileDownload,
+                        title = "Export Customer Data (CSV)",
+                        onClick = { showExportDialog = true }
+                    )
+                    ProfileDivider()
+                    ProfileMenuItem(
+                        icon = Icons.AutoMirrored.Outlined.HelpOutline,
                         title = "Help & Support",
                         onClick = { }
                     )
@@ -211,13 +305,14 @@ fun ProfileScreen(
                 border = androidx.compose.foundation.BorderStroke(1.dp, VoltRed.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Icon(Icons.Default.ExitToApp, contentDescription = "Logout", tint = VoltRed)
+                Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout", tint = VoltRed)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Logout", color = VoltRed, fontWeight = FontWeight.Bold)
             }
         }
     }
 }
+
 
 @Composable
 private fun ProfileMenuItem(

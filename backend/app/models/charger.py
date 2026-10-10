@@ -1,6 +1,6 @@
 from datetime import datetime
 import enum
-from sqlalchemy import Column, String, Float, Boolean, DateTime, Integer, ForeignKey, Enum
+from sqlalchemy import Column, String, Float, Boolean, DateTime, Integer, ForeignKey, Enum, Index
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -20,9 +20,14 @@ class ConnectorTypeEnum(str, enum.Enum):
 
 class Charger(Base):
     __tablename__ = "chargers"
+    __table_args__ = (
+        Index("ix_chargers_stn_active", "station_id", "is_active"),
+        Index("ix_chargers_status", "status"),
+    )
 
     id = Column(String, primary_key=True, index=True)
     station_id = Column(String, ForeignKey("stations.id"), nullable=False, index=True)
+
     charger_code = Column(String, unique=True, index=True, nullable=False)  # EVSE-08
     connector_type = Column(String, default="CCS 2", nullable=False)
     power_kw = Column(Integer, default=60, nullable=False)

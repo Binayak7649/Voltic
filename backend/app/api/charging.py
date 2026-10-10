@@ -9,7 +9,14 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.utils.helpers import standard_response
 
+from app.services.charging_provider import get_all_providers_status
+
 router = APIRouter(prefix="/charging", tags=["Charging Management"])
+
+@router.get("/providers/status")
+def list_providers_status():
+    """Returns connectivity and required credentials for all charging provider adapters."""
+    return standard_response(True, "Charging provider integrations retrieved", get_all_providers_status())
 
 @router.post("/start")
 def start_charging(
@@ -23,7 +30,9 @@ def start_charging(
         charger_id=req.charger_id,
         start_percentage=req.start_percentage or 20.0,
         target_percentage=req.target_percentage or 85.0,
-        payment_method=req.payment_method or "UPI"
+        payment_method=req.payment_method or "UPI",
+        is_demo=req.is_demo or False,
+        idempotency_key=req.idempotency_key
     )
     if err:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=err)
@@ -37,7 +46,9 @@ def start_charging(
         "power_kw": session.power_kw,
         "estimated_cost": session.estimated_cost,
         "txn_id": session.txn_id,
-        "evse_id": session.evse_id
+        "evse_id": session.evse_id,
+        "is_demo": session.is_demo,
+        "provider_name": session.provider_name
     })
 
 @router.get("/active")
@@ -67,7 +78,9 @@ def get_active_session(
         "tariff_per_kwh": updated.tariff_per_kwh,
         "estimated_cost": updated.estimated_cost,
         "txn_id": updated.txn_id,
-        "payment_method": updated.payment_method
+        "payment_method": updated.payment_method,
+        "is_demo": updated.is_demo,
+        "provider_name": updated.provider_name
     })
 
 @router.get("/{session_id}")
@@ -91,6 +104,8 @@ def get_charging_session(session_id: str, db: Session = Depends(get_db)):
         "final_cost": session.final_cost,
         "txn_id": session.txn_id,
         "payment_method": session.payment_method,
+        "is_demo": session.is_demo,
+        "provider_name": session.provider_name,
         "start_time": session.start_time.isoformat(),
         "end_time": session.end_time.isoformat() if session.end_time else None
     })
@@ -114,7 +129,9 @@ def stop_charging(
         "station_name": session.charger.station.name if session.charger and session.charger.station else "VoltElite Hub",
         "evse_id": session.evse_id,
         "payment_status": "SUCCESS",
-        "txn_id": session.txn_id
+        "txn_id": session.txn_id,
+        "is_demo": session.is_demo,
+        "provider_name": session.provider_name
     })
 
 @router.post("/{session_id}/cancel")

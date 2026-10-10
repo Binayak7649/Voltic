@@ -44,8 +44,10 @@ class Settings(BaseSettings):
     DEV_OTP_MODE: bool = os.getenv("DEV_OTP_MODE", "true").lower() == "true"
     FIXED_DEV_OTP: str = "123456"
 
-    # Maps
-    GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
+    # Mappls (MapmyIndia) Integration
+    MAPPLS_API_KEY: str = os.getenv("MAPPLS_API_KEY", "")
+    MAPPLS_CLIENT_ID: str = os.getenv("MAPPLS_CLIENT_ID", "")
+    MAPPLS_CLIENT_SECRET: str = os.getenv("MAPPLS_CLIENT_SECRET", "")
 
     # Hardware Simulation
     SIMULATION_MODE: bool = os.getenv("SIMULATION_MODE", "true").lower() == "true"

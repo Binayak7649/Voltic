@@ -1,4 +1,5 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.util.Properties
 
 plugins {
   alias(libs.plugins.android.application)
@@ -6,6 +7,44 @@ plugins {
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+}
+
+fun resolveMapsSecret(): String {
+  val envFile = rootProject.file(".env")
+  if (envFile.exists()) {
+    val props = Properties()
+    try {
+      envFile.inputStream().use { stream ->
+        props.load(stream)
+        val k: String? = props.getProperty("GOOGLE_MAPS_PLATFORM_KEY")
+          ?: props.getProperty("GOOGLE_MAPS_API_KEY")
+        if (!k.isNullOrBlank() && !k.contains("your_google_maps_api_key_here") && !k.contains("PLACEHOLDER")) {
+          return k.trim()
+        }
+      }
+    } catch (_: Exception) {}
+  }
+
+  val devEnvJson = file("/app/.dev.env.json")
+  if (devEnvJson.exists()) {
+    try {
+      val text = devEnvJson.readText()
+      val regex1 = """"GOOGLE_MAPS_PLATFORM_KEY"\s*:\s*"([^"]+)"""".toRegex()
+      val regex2 = """"GOOGLE_MAPS_API_KEY"\s*:\s*"([^"]+)"""".toRegex()
+      val match = regex1.find(text) ?: regex2.find(text)
+      if (match != null && match.groupValues[1].isNotBlank()) {
+        return match.groupValues[1].trim()
+      }
+    } catch (_: Exception) {}
+  }
+
+  val envKey: String? = System.getenv("GOOGLE_MAPS_PLATFORM_KEY")
+    ?: System.getenv("GOOGLE_MAPS_API_KEY")
+  if (!envKey.isNullOrBlank()) {
+    return envKey.trim()
+  }
+
+  return ""
 }
 
 android {
@@ -20,6 +59,11 @@ android {
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    val resolvedMapsKey = resolveMapsSecret()
+    manifestPlaceholders["GOOGLE_MAPS_PLATFORM_KEY"] = resolvedMapsKey
+    manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = resolvedMapsKey
+    buildConfigField("String", "GOOGLE_MAPS_PLATFORM_KEY", "\"$resolvedMapsKey\"")
+    buildConfigField("String", "GOOGLE_MAPS_API_KEY", "\"$resolvedMapsKey\"")
   }
 
   signingConfigs {
@@ -68,6 +112,8 @@ secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
+  ignoreList.add("GOOGLE_MAPS_API_KEY")
+  ignoreList.add("GOOGLE_MAPS_PLATFORM_KEY")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
@@ -79,10 +125,14 @@ dependencies {
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
-  // implementation(libs.androidx.camera.camera2)
-  // implementation(libs.androidx.camera.core)
-  // implementation(libs.androidx.camera.lifecycle)
-  // implementation(libs.androidx.camera.view)
+  implementation(libs.androidx.camera.camera2)
+  implementation(libs.androidx.camera.core)
+  implementation(libs.androidx.camera.lifecycle)
+  implementation(libs.androidx.camera.view)
+  implementation(libs.maps.compose)
+  implementation(libs.play.services.maps)
+  implementation(libs.mlkit.barcode.scanning)
+  implementation(libs.zxing.core)
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.compose.material3)

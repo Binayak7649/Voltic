@@ -13,7 +13,8 @@ interface VoltEliteApiService {
         @Query("latitude") lat: Double,
         @Query("longitude") lon: Double,
         @Query("radius") radiusKm: Double = 50.0,
-        @Query("operator") operator: String? = null
+        @Query("operator") operator: String? = null,
+        @Query("cars_only") carsOnly: Boolean = true
     ): Response<BaseApiResponse<List<StationDto>>>
 
     @GET("api/stations/{station_id}")
@@ -43,6 +44,9 @@ interface VoltEliteApiService {
     suspend fun stopCharging(
         @Path("session_id") sessionId: String
     ): Response<BaseApiResponse<Map<String, Any?>>>
+
+    @GET("api/charging/providers/status")
+    suspend fun getProvidersStatus(): Response<BaseApiResponse<List<ProviderStatusDto>>>
 
     @GET("api/history/charging")
     suspend fun getChargingHistory(): Response<BaseApiResponse<List<HistorySessionDto>>>

@@ -31,6 +31,7 @@ data class StationDto(
     @Json(name = "max_power_kw") val maxPowerKw: Int? = 60,
     @Json(name = "open_hours") val openHours: String? = "24/7 Open",
     @Json(name = "amenities") val amenities: List<String>? = emptyList(),
+    @Json(name = "is_car_compatible") val isCarCompatible: Boolean? = true,
     @Json(name = "chargers") val chargers: List<ChargerDto>? = emptyList()
 )
 
@@ -87,7 +88,9 @@ data class StartChargingRequestDto(
     @Json(name = "charger_id") val chargerId: String,
     @Json(name = "start_percentage") val startPercentage: Float = 20f,
     @Json(name = "target_percentage") val targetPercentage: Float = 85f,
-    @Json(name = "payment_method") val paymentMethod: String = "UPI"
+    @Json(name = "payment_method") val paymentMethod: String = "UPI",
+    @Json(name = "is_demo") val isDemo: Boolean = false,
+    @Json(name = "idempotency_key") val idempotencyKey: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -105,7 +108,17 @@ data class ChargingSessionDto(
     @Json(name = "estimated_cost") val estimatedCost: Double,
     @Json(name = "final_cost") val finalCost: Double? = 0.0,
     @Json(name = "txn_id") val txnId: String? = null,
-    @Json(name = "payment_method") val paymentMethod: String? = "UPI"
+    @Json(name = "payment_method") val paymentMethod: String? = "UPI",
+    @Json(name = "is_demo") val isDemo: Boolean? = false,
+    @Json(name = "provider_name") val providerName: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ProviderStatusDto(
+    @Json(name = "provider_name") val providerName: String,
+    @Json(name = "operator_name") val operatorName: String,
+    @Json(name = "status") val status: String,
+    @Json(name = "details") val details: String
 )
 
 @JsonClass(generateAdapter = true)

@@ -1,6 +1,19 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -27,27 +40,59 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.local.ChargingSessionEntity
 import com.example.model.*
 import com.example.ui.Screen
 import com.example.ui.VoltEliteViewModel
 import com.example.ui.theme.*
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
+import java.util.concurrent.Executors
 
 @Composable
 fun QRScannerScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var manualInput by remember { mutableStateOf("") }
     var isTorchOn by remember { mutableStateOf(false) }
     val errorMessage by viewModel.qrErrorMessage.collectAsState()
     val presets = remember { viewModel.qrService.getDemoPresets() }
+
+    // Camera permission check
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+        )
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasCameraPermission = isGranted
+    }
+
+    LaunchedEffect(Unit) {
+        if (!hasCameraPermission) {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
 
     BackHandler {
         viewModel.navigateTo(Screen.MAIN)
@@ -104,6 +149,7 @@ fun QRScannerScreen(
 
                 IconButton(
                     onClick = { isTorchOn = !isTorchOn },
+                    enabled = hasCameraPermission,
                     modifier = Modifier
                         .size(42.dp)
                         .background(if (isTorchOn) VoltGreen.copy(alpha = 0.2f) else VoltCard, CircleShape)
@@ -121,16 +167,16 @@ fun QRScannerScreen(
 
             // Subtitle
             Text(
-                text = "Align camera with the QR code on the charger or EVSE",
+                text = "Point camera at the QR code on the EV charger or EVSE",
                 fontSize = 13.sp,
                 color = VoltTextSecondary,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 24.dp)
             )
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Camera Viewfinder Box with Laser Animation
+            // Camera Viewfinder Box with live CameraX feed & Laser Animation
             Box(
                 modifier = Modifier
                     .size(280.dp)
@@ -140,7 +186,70 @@ fun QRScannerScreen(
                     .testTag("qr_scanner_viewfinder"),
                 contentAlignment = Alignment.Center
             ) {
-                // High-tech viewfinder overlay canvas
+                if (hasCameraPermission) {
+                    // Real Live Camera Feed with ML Kit Barcode Analyzer
+                    LiveCameraQrScanner(
+                        isTorchOn = isTorchOn,
+                        onQrCodeScanned = { detectedCode ->
+                            triggerScanVibration(context)
+                            viewModel.processQrCode(detectedCode)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    // Fallback Permission Request Card
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = "Camera Permission",
+                            tint = VoltCyan,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Camera permission required to scan physical QR codes",
+                            color = VoltTextSecondary,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Button(
+                                onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
+                                colors = ButtonDefaults.buttonColors(containerColor = VoltGreen),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text("Allow Camera", color = VoltDarkBg, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(
+                                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                            Uri.fromParts("package", context.packageName, null)
+                                        )
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {}
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, VoltCardBorder)
+                            ) {
+                                Text("Open Settings", color = VoltTextPrimary, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                // High-tech viewfinder overlay canvas (drawn on top of camera)
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val w = size.width
                     val h = size.height
@@ -170,23 +279,6 @@ fun QRScannerScreen(
                         start = Offset(24f, currentY),
                         end = Offset(w - 24f, currentY),
                         strokeWidth = 4f
-                    )
-                }
-
-                // Center Guide Icon
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.QrCodeScanner,
-                        contentDescription = "Scan",
-                        tint = VoltCyan.copy(alpha = 0.6f),
-                        modifier = Modifier.size(54.dp)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Scanning...",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = VoltTextSecondary
                     )
                 }
             }
@@ -344,6 +436,8 @@ fun ChargerVerificationScreen(
 ) {
     val verification by viewModel.chargerVerification.collectAsState()
     val selectedPayment by viewModel.selectedPaymentMethod.collectAsState()
+    val isStartingCharging by viewModel.isStartingCharging.collectAsState()
+    val startChargingError by viewModel.startChargingError.collectAsState()
 
     BackHandler {
         viewModel.navigateTo(Screen.QR_SCANNER)
@@ -363,6 +457,53 @@ fun ChargerVerificationScreen(
     val compatibility = verification!!.compatibility
     val estimatedCost = verification!!.estimatedFullCost
     val estimatedDuration = verification!!.estimatedDurationMin
+
+    if (startChargingError != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissStartChargingError() },
+            containerColor = VoltCard,
+            icon = {
+                Icon(Icons.Default.Warning, contentDescription = "Authorization Notice", tint = VoltRed, modifier = Modifier.size(36.dp))
+            },
+            title = {
+                Text("Provider Authorization Notice", fontWeight = FontWeight.Bold, color = VoltTextPrimary)
+            },
+            text = {
+                Column {
+                    Text(
+                        text = startChargingError ?: "Authorization failed.",
+                        color = VoltTextSecondary,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "For academic testing or evaluation without commercial live credentials, you can proceed in Demo Simulation Mode.",
+                        color = VoltCyan,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.dismissStartChargingError()
+                        viewModel.confirmStartChargingFromQr(isDemo = true)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = VoltGreen),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Proceed in Demo Mode", color = VoltDarkBg, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissStartChargingError() }) {
+                    Text("Cancel", color = VoltTextSecondary)
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -394,7 +535,8 @@ fun ChargerVerificationScreen(
                 Column(modifier = Modifier.padding(16.dp)) {
                     if (compatibility.isCompatible && charger.supportsRemoteStart) {
                         Button(
-                            onClick = { viewModel.confirmStartChargingFromQr() },
+                            onClick = { viewModel.confirmStartChargingFromQr(isDemo = false) },
+                            enabled = !isStartingCharging,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(54.dp)
@@ -402,14 +544,29 @@ fun ChargerVerificationScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = VoltGreen),
                             shape = RoundedCornerShape(14.dp)
                         ) {
-                            Icon(Icons.Default.Bolt, contentDescription = "Start", tint = VoltDarkBg, modifier = Modifier.size(22.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Confirm & Start Charging",
-                                color = VoltDarkBg,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            if (isStartingCharging) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    color = VoltDarkBg,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Authorizing Session...",
+                                    color = VoltDarkBg,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            } else {
+                                Icon(Icons.Default.Bolt, contentDescription = "Start", tint = VoltDarkBg, modifier = Modifier.size(22.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Confirm & Start Charging",
+                                    color = VoltDarkBg,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     } else if (!compatibility.isCompatible) {
                         Button(
@@ -1051,3 +1208,117 @@ private fun ReceiptRow(label: String, value: String) {
         Text(text = value, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = VoltTextPrimary)
     }
 }
+
+@Composable
+fun LiveCameraQrScanner(
+    isTorchOn: Boolean,
+    onQrCodeScanned: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
+    var cameraProviderInstance by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var hasScannedCode by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isTorchOn, cameraControl) {
+        try {
+            cameraControl?.enableTorch(isTorchOn)
+        } catch (_: Exception) {}
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                cameraControl?.enableTorch(false)
+                cameraProviderInstance?.unbindAll()
+            } catch (_: Exception) {}
+            cameraExecutor.shutdown()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            val previewView = PreviewView(ctx).apply {
+                scaleType = PreviewView.ScaleType.FILL_CENTER
+            }
+
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+            cameraProviderFuture.addListener({
+                try {
+                    val cameraProvider = cameraProviderFuture.get()
+                    cameraProviderInstance = cameraProvider
+                    val preview = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+
+                    val barcodeScanner = BarcodeScanning.getClient(
+                        BarcodeScannerOptions.Builder()
+                            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                            .build()
+                    )
+
+                    val imageAnalysis = ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .setTargetResolution(android.util.Size(1280, 720))
+                        .build()
+
+                    imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
+                        @androidx.annotation.OptIn(ExperimentalGetImage::class)
+                        val mediaImage = imageProxy.image
+                        if (mediaImage != null && !hasScannedCode) {
+                            val inputImage = InputImage.fromMediaImage(
+                                mediaImage,
+                                imageProxy.imageInfo.rotationDegrees
+                            )
+                            barcodeScanner.process(inputImage)
+                                .addOnSuccessListener { barcodes ->
+                                    val qr = barcodes.firstOrNull()?.rawValue
+                                    if (!qr.isNullOrBlank() && !hasScannedCode) {
+                                        hasScannedCode = true
+                                        onQrCodeScanned(qr)
+                                    }
+                                }
+                                .addOnCompleteListener {
+                                    imageProxy.close()
+                                }
+                        } else {
+                            imageProxy.close()
+                        }
+                    }
+
+                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                    cameraProvider.unbindAll()
+                    val camera = cameraProvider.bindToLifecycle(
+                        lifecycleOwner,
+                        cameraSelector,
+                        preview,
+                        imageAnalysis
+                    )
+                    cameraControl = camera.cameraControl
+                } catch (_: Exception) {
+                    // Graceful fallback if camera hardware is unavailable
+                }
+            }, ContextCompat.getMainExecutor(ctx))
+
+            previewView
+        },
+        modifier = modifier
+    )
+}
+
+fun triggerScanVibration(context: Context) {
+    try {
+        val vibrator = context.getSystemService(Vibrator::class.java)
+        if (vibrator != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(140, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(140)
+            }
+        }
+    } catch (_: Exception) {}
+}
+

@@ -1,11 +1,15 @@
 from datetime import datetime
 import enum
-from sqlalchemy import Column, String, Float, Boolean, DateTime, Integer, Text
+from sqlalchemy import Column, String, Float, Boolean, DateTime, Integer, Text, Index
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 class Station(Base):
     __tablename__ = "stations"
+    __table_args__ = (
+        Index("ix_stations_lat_lon", "latitude", "longitude"),
+        Index("ix_stations_active_operator", "is_active", "operator"),
+    )
 
     id = Column(String, primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
@@ -28,3 +32,4 @@ class Station(Base):
 
     # Relationships
     chargers = relationship("Charger", back_populates="station", cascade="all, delete-orphan")
+

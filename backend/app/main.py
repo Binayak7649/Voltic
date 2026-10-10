@@ -31,6 +31,11 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
+from fastapi.middleware.gzip import GZipMiddleware
+
+# GZip Compression Middleware for payload optimization
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
@@ -39,6 +44,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # Custom Validation Exception Handler
 @app.exception_handler(RequestValidationError)

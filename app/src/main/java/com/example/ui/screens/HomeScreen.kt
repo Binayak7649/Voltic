@@ -32,6 +32,7 @@ import com.example.model.ChargingNetwork
 import com.example.ui.MainTab
 import com.example.ui.Screen
 import com.example.ui.VoltEliteViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.components.StationCard
 import com.example.ui.theme.*
 
@@ -40,13 +41,14 @@ fun HomeScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val stations by viewModel.filteredStations.collectAsState()
-    val bookmarkedIds by viewModel.bookmarkedIds.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val selectedNetwork by viewModel.selectedNetworkFilter.collectAsState()
-    val onlyFast by viewModel.onlyFastChargers.collectAsState()
-    val notifications by viewModel.notifications.collectAsState()
-    val unreadNotifs = notifications.count { !it.isRead }
+    val stations by viewModel.filteredStations.collectAsStateWithLifecycle()
+    val bookmarkedIds by viewModel.bookmarkedIdsSet.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val selectedNetwork by viewModel.selectedNetworkFilter.collectAsStateWithLifecycle()
+    val onlyFast by viewModel.onlyFastChargers.collectAsStateWithLifecycle()
+    val notifications by viewModel.notifications.collectAsStateWithLifecycle()
+    val unreadNotifs = remember(notifications) { notifications.count { !it.isRead } }
+
 
     LazyColumn(
         modifier = modifier
@@ -413,7 +415,11 @@ fun HomeScreen(
                 }
             }
         } else {
-            items(stations, key = { it.id }) { station ->
+            items(
+                items = stations,
+                key = { it.id },
+                contentType = { "station_card" }
+            ) { station ->
                 Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
                     StationCard(
                         station = station,
@@ -428,6 +434,7 @@ fun HomeScreen(
                 }
             }
         }
+
     }
 }
 

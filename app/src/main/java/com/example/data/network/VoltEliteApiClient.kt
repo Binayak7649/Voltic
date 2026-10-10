@@ -2,6 +2,7 @@ package com.example.data.network
 
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -17,14 +18,18 @@ object VoltEliteApiClient {
         set(value) {
             val formatted = if (value.endsWith("/")) value else "$value/"
             field = formatted
-            retrofitInstance = null
-            apiServiceInstance = null
+            synchronized(this) {
+                retrofitInstance = null
+                apiServiceInstance = null
+            }
         }
 
     @Volatile
     var authToken: String? = null
 
+    @Volatile
     private var retrofitInstance: Retrofit? = null
+    @Volatile
     private var apiServiceInstance: VoltEliteApiService? = null
 
     private val moshi: Moshi by lazy {
@@ -35,13 +40,16 @@ object VoltEliteApiClient {
 
     val okHttpClient: OkHttpClient by lazy {
         val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.BASIC  // Lightweight header-only logging for optimal performance
         }
 
         OkHttpClient.Builder()
+            .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(15, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .addInterceptor { chain ->
                 val original = chain.request()
                 val requestBuilder = original.newBuilder()
@@ -62,16 +70,20 @@ object VoltEliteApiClient {
         val current = apiServiceInstance
         if (current != null) return current
 
-        val retrofit = Retrofit.Builder()
-            .baseUrl(baseUrl)
-            .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .build()
+        return synchronized(this) {
+            apiServiceInstance ?: run {
+                val retrofit = Retrofit.Builder()
+                    .baseUrl(baseUrl)
+                    .client(okHttpClient)
+                    .addConverterFactory(MoshiConverterFactory.create(moshi))
+                    .build()
 
-        retrofitInstance = retrofit
-        val service = retrofit.create(VoltEliteApiService::class.java)
-        apiServiceInstance = service
-        return service
+                retrofitInstance = retrofit
+                val service = retrofit.create(VoltEliteApiService::class.java)
+                apiServiceInstance = service
+                service
+            }
+        }
     }
 
     fun connectChargingWebSocket(

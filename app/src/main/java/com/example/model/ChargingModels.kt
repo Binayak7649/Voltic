@@ -56,7 +56,8 @@ data class ChargingStation(
     val amenities: List<String> = listOf("Parking", "Cafeteria", "Restroom", "Wi-Fi", "24/7 Support"),
     val openHours: String = "24/7 Open",
     val isBookmarked: Boolean = false,
-    val operatorVerified: Boolean = true
+    val operatorVerified: Boolean = true,
+    val isCarCompatible: Boolean = true
 )
 
 data class EvVehicle(
@@ -96,7 +97,9 @@ data class ChargingSession(
     val startTimeFormatted: String = "Today, 10:15 AM",
     val evseId: String = "EVSE-08",
     val txnId: String = "TXN-839201",
-    val paymentMethodName: String = "UPI (Google Pay)"
+    val paymentMethodName: String = "UPI (Google Pay)",
+    val isDemo: Boolean = false,
+    val providerName: String = "Simulation"
 )
 
 data class TripRecord(
@@ -202,5 +205,6 @@ data class ChargingReceipt(
     val tariffPerKwh: Double,
     val paymentMethod: String,
     val timestampFormatted: String,
-    val invoiceNumber: String
+    val invoiceNumber: String,
+    val isDemo: Boolean = false
 )

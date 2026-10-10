@@ -51,10 +51,14 @@ class UnifiedChargingRepository(
     }
 
     private suspend fun loadAllStations() {
+        loadNearbyStations(22.7196, 75.8577, 100.0, carsOnly = true)
+    }
+
+    suspend fun loadNearbyStations(lat: Double, lon: Double, radiusKm: Double = 50.0, carsOnly: Boolean = true) {
         val aggregated = mutableListOf<ChargingStation>()
         try {
             val api = com.example.data.network.VoltEliteApiClient.getService()
-            val response = api.getNearbyStations(22.7196, 75.8577, 100.0)
+            val response = api.getNearbyStations(lat, lon, radiusKm, carsOnly = carsOnly)
             if (response.isSuccessful && response.body()?.data != null) {
                 val dtos = response.body()!!.data!!
                 for (dto in dtos) {
@@ -107,7 +111,8 @@ class UnifiedChargingRepository(
                             maxPowerKw = dto.maxPowerKw ?: 60,
                             connectors = connectors,
                             amenities = dto.amenities ?: listOf("Parking", "Cafeteria", "Wi-Fi"),
-                            openHours = dto.openHours ?: "24/7 Open"
+                            openHours = dto.openHours ?: "24/7 Open",
+                            isCarCompatible = dto.isCarCompatible ?: true
                         )
                     )
                 }
@@ -119,8 +124,13 @@ class UnifiedChargingRepository(
         if (aggregated.isEmpty()) {
             providers.forEach { provider ->
                 try {
-                    val list = provider.getStations(22.7196, 75.8577, 100.0)
-                    aggregated.addAll(list)
+                    val list = provider.getStations(lat, lon, radiusKm)
+                    val filteredList = if (carsOnly) {
+                        list.filter { st ->
+                            st.connectors.any { it.type == ConnectorType.CCS_2 || it.type == ConnectorType.TYPE_2 || it.powerKw >= 7 }
+                        }
+                    } else list
+                    aggregated.addAll(filteredList)
                 } catch (e: Exception) {
                     // Provider fault tolerance
                 }
@@ -412,9 +422,14 @@ class UnifiedChargingRepository(
         }
     }
 
-    fun startChargingSessionFromQr(charger: ParsedQrCharger, paymentMethod: PaymentMethod): ChargingSession {
+    suspend fun startChargingSessionFromQr(
+        charger: ParsedQrCharger,
+        paymentMethod: PaymentMethod,
+        isDemo: Boolean = false
+    ): Result<ChargingSession> {
         val initialTxn = "TXN-${(100000..999999).random()}"
         val initialId = "sess_${System.currentTimeMillis()}"
+        val idempotencyKey = "IDEMP-${System.currentTimeMillis()}-${(1000..9999).random()}"
 
         val session = ChargingSession(
             id = initialId,
@@ -423,7 +438,7 @@ class UnifiedChargingRepository(
             network = charger.provider,
             connectorType = charger.connectorType,
             powerKw = charger.powerKw,
-            currentPercent = 68f,
+            currentPercent = 20f,
             targetPercent = 85f,
             energyAddedKwh = 0.5,
             totalCostRupees = charger.tariffPerKwh * 0.5,
@@ -431,48 +446,75 @@ class UnifiedChargingRepository(
             isLive = true,
             evseId = charger.evseId,
             txnId = initialTxn,
-            paymentMethodName = paymentMethod.title
+            paymentMethodName = if (isDemo) "${paymentMethod.title} (Demo)" else paymentMethod.title,
+            isDemo = isDemo,
+            providerName = if (isDemo) "VoltElite Demo Simulation" else charger.provider.displayName
         )
-        _activeSession.value = session
 
-        // Connect with FastAPI backend asynchronously
-        coroutineScope.launch {
-            try {
-                val api = com.example.data.network.VoltEliteApiClient.getService()
-                val chargerId = if (charger.evseId.isNotBlank()) charger.evseId else "chg_idr_01_a"
-                val res = api.startCharging(
-                    com.example.data.network.StartChargingRequestDto(
-                        chargerId = chargerId,
-                        startPercentage = 68f,
-                        targetPercentage = 85f,
-                        paymentMethod = paymentMethod.title
-                    )
+        // Connect with FastAPI backend
+        try {
+            val api = com.example.data.network.VoltEliteApiClient.getService()
+            val chargerId = if (charger.evseId.isNotBlank()) charger.evseId else charger.connectorId
+            val res = api.startCharging(
+                com.example.data.network.StartChargingRequestDto(
+                    chargerId = chargerId,
+                    startPercentage = 20f,
+                    targetPercentage = 85f,
+                    paymentMethod = paymentMethod.title,
+                    isDemo = isDemo,
+                    idempotencyKey = idempotencyKey
                 )
-                if (res.isSuccessful && res.body()?.data != null) {
-                    val backendSess = res.body()!!.data!!
-                    val realSessionId = backendSess.sessionId
-                    val realTxnId = backendSess.txnId ?: initialTxn
+            )
+            if (res.isSuccessful && res.body()?.data != null) {
+                val backendSess = res.body()!!.data!!
+                val realSessionId = backendSess.sessionId
+                val realTxnId = backendSess.txnId ?: initialTxn
+                val updatedSession = session.copy(
+                    id = realSessionId,
+                    txnId = realTxnId,
+                    isDemo = isDemo,
+                    providerName = backendSess.providerName ?: session.providerName
+                )
+                _activeSession.value = updatedSession
+
+                // Connect WebSocket live telemetry stream
+                com.example.data.network.VoltEliteApiClient.connectChargingWebSocket(realSessionId) { pct, energy, cost, status ->
                     _activeSession.value = _activeSession.value?.copy(
-                        id = realSessionId,
-                        txnId = realTxnId
+                        currentPercent = pct,
+                        energyAddedKwh = energy,
+                        totalCostRupees = cost,
+                        isLive = status == "CHARGING"
                     )
-                    // Connect WebSocket live telemetry stream
-                    com.example.data.network.VoltEliteApiClient.connectChargingWebSocket(realSessionId) { pct, energy, cost, status ->
-                        _activeSession.value = _activeSession.value?.copy(
-                            currentPercent = pct,
-                            energyAddedKwh = energy,
-                            totalCostRupees = cost,
-                            isLive = status == "CHARGING"
-                        )
-                    }
                 }
-            } catch (e: Exception) {
-                // Fallback to local ticking simulation
+
+                if (isDemo) {
+                    startSimulationLoop(charger.tariffPerKwh)
+                }
+                return Result.success(updatedSession)
+            } else {
+                val errorMsg = res.errorBody()?.string() ?: res.message()
+                val parsedError = try {
+                    val json = org.json.JSONObject(errorMsg)
+                    json.optString("detail", json.optString("message", "Charging start rejected"))
+                } catch (_: Exception) {
+                    "Provider authorization failed: $errorMsg"
+                }
+
+                if (!isDemo) {
+                    // In real mode, NEVER fabricate success! Fail cleanly and report authoritative message.
+                    return Result.failure(Exception(parsedError))
+                }
+            }
+        } catch (e: Exception) {
+            if (!isDemo) {
+                return Result.failure(Exception(e.message ?: "Failed to connect to provider. Please check network or use Demo Mode."))
             }
         }
 
+        // Demo Mode fallback for offline presentation
+        _activeSession.value = session
         startSimulationLoop(charger.tariffPerKwh)
-        return session
+        return Result.success(session)
     }
 
     private fun startSimulationLoop(pricePerKwh: Double) {
@@ -518,7 +560,7 @@ class UnifiedChargingRepository(
             // Offline fallback
         }
 
-        val durationMin = 32
+        val durationMin = 24
         val tariffPerKwh = if (current.energyAddedKwh > 0) finalCost / current.energyAddedKwh else 18.5
 
         val receipt = ChargingReceipt(
@@ -534,8 +576,9 @@ class UnifiedChargingRepository(
             totalAmountRupees = finalCost,
             tariffPerKwh = (tariffPerKwh * 10).toInt() / 10.0,
             paymentMethod = current.paymentMethodName,
-            timestampFormatted = "06 Oct 2026, 10:45 AM",
-            invoiceNumber = invoiceNum
+            timestampFormatted = "10 Oct 2026, 12:45 PM",
+            invoiceNumber = invoiceNum,
+            isDemo = current.isDemo
         )
 
         // Save session record to database
@@ -555,7 +598,8 @@ class UnifiedChargingRepository(
                 paymentMethod = current.paymentMethodName,
                 durationMin = durationMin,
                 tariffPerKwh = receipt.tariffPerKwh,
-                timestamp = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
+                isDemo = current.isDemo
             )
         )
 

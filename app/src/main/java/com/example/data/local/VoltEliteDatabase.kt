@@ -53,7 +53,8 @@ data class ChargingSessionEntity(
     val paymentMethod: String = "UPI (Google Pay)",
     val durationMin: Int = 32,
     val tariffPerKwh: Double = 18.5,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val isDemo: Boolean = false
 )
 
 @Entity(tableName = "notifications")

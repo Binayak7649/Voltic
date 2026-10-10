@@ -33,12 +33,15 @@ class QRVerifyResponse(BaseModel):
 
 class StartChargingRequest(BaseModel):
     charger_id: str
+    evse_id: Optional[str] = None
     start_percentage: Optional[float] = 20.0
     target_percentage: Optional[float] = 85.0
     payment_method: Optional[str] = "UPI"
+    is_demo: Optional[bool] = False
+    idempotency_key: Optional[str] = None
 
 class StopChargingRequest(BaseModel):
-    pass
+    is_demo: Optional[bool] = False
 
 class ChargingSessionResponse(BaseModel):
     id: str

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.services.station_service import StationService
+from app.services.mappls_service import MapplsService
 from app.models.station import Station
 from app.schemas.station import StationCreate, StationUpdate
 from app.api.deps import get_current_user, get_current_admin
@@ -40,14 +41,49 @@ def list_stations(
 
 @router.get("/nearby")
 def nearby_stations(
-    latitude: float = Query(22.7196, description="User latitude"),
-    longitude: float = Query(75.8577, description="User longitude"),
-    radius: float = Query(50.0, description="Radius in km"),
+    latitude: Optional[float] = Query(None, description="User latitude"),
+    longitude: Optional[float] = Query(None, description="User longitude"),
+    lat: Optional[float] = Query(None, description="Alias for user latitude"),
+    lng: Optional[float] = Query(None, description="Alias for user longitude"),
+    radius: float = Query(50.0, ge=0.5, le=500.0, description="Radius in km"),
     operator: Optional[str] = None,
+    cars_only: bool = Query(True, description="Filter for EV car chargers only"),
+    limit: int = Query(100, ge=1, le=200, description="Page limit"),
+    offset: int = Query(0, ge=0, description="Page offset"),
     db: Session = Depends(get_db)
 ):
-    results = StationService.get_nearby_stations(db, user_lat=latitude, user_lon=longitude, radius_km=radius, operator=operator)
-    return standard_response(True, f"Found {len(results)} stations within {radius} km", results)
+    target_lat = latitude if latitude is not None else (lat if lat is not None else 22.7196)
+    target_lon = longitude if longitude is not None else (lng if lng is not None else 75.8577)
+    results = StationService.get_nearby_stations(
+        db,
+        user_lat=target_lat,
+        user_lon=target_lon,
+        radius_km=radius,
+        operator=operator,
+        cars_only=cars_only,
+        limit=limit,
+        offset=offset
+    )
+    return standard_response(True, f"Found {len(results)} EV car charging stations within {radius} km", results)
+
+
+@router.get("/route")
+def get_route(
+    origin_lat: float = Query(..., description="Start latitude"),
+    origin_lon: float = Query(..., description="Start longitude"),
+    dest_lat: float = Query(..., description="Destination latitude"),
+    dest_lon: float = Query(..., description="Destination longitude")
+):
+    route_info = MapplsService.calculate_route(origin_lat, origin_lon, dest_lat, dest_lon)
+    return standard_response(True, "Route calculated successfully via Mappls", route_info)
+
+@router.get("/reverse-geocode")
+def reverse_geocode(
+    lat: float = Query(..., description="Latitude"),
+    lon: float = Query(..., description="Longitude")
+):
+    geo_info = MapplsService.reverse_geocode(lat, lon)
+    return standard_response(True, "Reverse geocode retrieved", geo_info)
 
 @router.get("/{station_id}")
 def get_station_details(station_id: str, db: Session = Depends(get_db)):
