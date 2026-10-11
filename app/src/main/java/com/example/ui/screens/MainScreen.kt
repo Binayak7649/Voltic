@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.MainTab
 import com.example.ui.Screen
 import com.example.ui.VoltEliteViewModel
@@ -18,11 +19,11 @@ fun MainScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val currentTab by viewModel.currentTab.collectAsState()
-    val allStations by viewModel.filteredStations.collectAsState()
-    val selectedStation by viewModel.selectedStation.collectAsState()
-    val userLocation by viewModel.userLocation.collectAsState()
-    val carsOnlyFilter by viewModel.carsOnlyFilter.collectAsState()
+    val currentTab by viewModel.currentTab.collectAsStateWithLifecycle()
+    val allStations by viewModel.filteredStations.collectAsStateWithLifecycle()
+    val selectedStation by viewModel.selectedStation.collectAsStateWithLifecycle()
+    val userLocation by viewModel.userLocation.collectAsStateWithLifecycle()
+    val carsOnlyFilter by viewModel.carsOnlyFilter.collectAsStateWithLifecycle()
 
     BackHandler(enabled = currentTab != MainTab.HOME) {
         viewModel.setTab(MainTab.HOME)

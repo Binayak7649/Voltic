@@ -1,5 +1,7 @@
 package com.example.model
 
+import androidx.compose.runtime.Immutable
+
 enum class ChargingNetwork(val displayName: String, val brandColorHex: Long) {
     TATA_POWER("Tata Power", 0xFF0072CE),
     CHARGE_ZONE("ChargeZone", 0xFF00B0FF),
@@ -25,6 +27,7 @@ enum class StationStatus(val label: String) {
     OFFLINE("Offline")
 }
 
+@Immutable
 data class ConnectorInfo(
     val id: String,
     val type: ConnectorType,
@@ -35,6 +38,7 @@ data class ConnectorInfo(
     val totalCount: Int = 2
 )
 
+@Immutable
 data class ChargingStation(
     val id: String,
     val name: String,
@@ -60,6 +64,7 @@ data class ChargingStation(
     val isCarCompatible: Boolean = true
 )
 
+@Immutable
 data class EvVehicle(
     val id: String,
     val make: String,
@@ -71,6 +76,7 @@ data class EvVehicle(
     val isDefault: Boolean = true
 )
 
+@Immutable
 data class UserProfile(
     val id: String = "user_101",
     val name: String = "Binayak Tiwari",
@@ -81,6 +87,7 @@ data class UserProfile(
     val isGoogleLinked: Boolean = true
 )
 
+@Immutable
 data class ChargingSession(
     val id: String,
     val stationId: String,
@@ -102,6 +109,7 @@ data class ChargingSession(
     val providerName: String = "Simulation"
 )
 
+@Immutable
 data class TripRecord(
     val id: String,
     val origin: String,
@@ -114,6 +122,7 @@ data class TripRecord(
     val stopsCount: Int = 1
 )
 
+@Immutable
 data class SavedLocation(
     val id: String,
     val label: String,
@@ -121,6 +130,7 @@ data class SavedLocation(
     val iconName: String = "home"
 )
 
+@Immutable
 data class RecommendedChargingStop(
     val station: ChargingStation,
     val distanceFromStartKm: Int,
@@ -131,6 +141,7 @@ data class RecommendedChargingStop(
     val estimatedCostRupees: Int
 )
 
+@Immutable
 data class RoutePlan(
     val origin: String,
     val destination: String,
@@ -142,6 +153,7 @@ data class RoutePlan(
     val totalEstimatedCost: Int
 )
 
+@Immutable
 data class NotificationItem(
     val id: String,
     val title: String,
@@ -160,6 +172,7 @@ enum class PaymentMethod(val title: String, val subtitle: String, val iconType: 
     PRE_AUTH("Pre-Authorization Hold", "₹500 temporary hold released on completion", "shield")
 }
 
+@Immutable
 data class ParsedQrCharger(
     val provider: ChargingNetwork,
     val stationId: String,
@@ -176,6 +189,7 @@ data class ParsedQrCharger(
     val rawPayload: String
 )
 
+@Immutable
 data class VehicleCompatibility(
     val isCompatible: Boolean,
     val userVehicleMakeModel: String,
@@ -184,6 +198,7 @@ data class VehicleCompatibility(
     val message: String
 )
 
+@Immutable
 data class ChargerVerificationResult(
     val charger: ParsedQrCharger,
     val compatibility: VehicleCompatibility,
@@ -191,6 +206,7 @@ data class ChargerVerificationResult(
     val estimatedDurationMin: Int
 )
 
+@Immutable
 data class ChargingReceipt(
     val sessionId: String,
     val txnId: String,

@@ -64,6 +64,13 @@ private const val GOOGLE_MAPS_DARK_STYLE_JSON = """[
   {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#060b12"}]}
 ]"""
 
+data class StationCluster(
+    val id: String,
+    val centerLat: Double,
+    val centerLon: Double,
+    val stations: List<ChargingStation>
+)
+
 @OptIn(MapsComposeExperimentalApi::class)
 @Composable
 fun InteractiveChargerMap(
@@ -84,6 +91,7 @@ fun InteractiveChargerMap(
     var isGoogleMapMode by remember { mutableStateOf(true) }
     var searchQuery by remember { mutableStateOf("") }
     var onlyFastStations by remember { mutableStateOf(false) }
+    var showMapplsConfigDialog by remember { mutableStateOf(false) }
 
     val mapsApiKey = remember {
         com.example.BuildConfig.GOOGLE_MAPS_PLATFORM_KEY.ifBlank {
@@ -108,6 +116,15 @@ fun InteractiveChargerMap(
                 ),
                 durationMs = 800
             )
+        }
+    }
+
+    // Debounce map movement and camera-based station searches
+    LaunchedEffect(cameraPositionState.isMoving) {
+        if (!cameraPositionState.isMoving) {
+            val target = cameraPositionState.position.target
+            kotlinx.coroutines.delay(450)
+            onRefreshLocation(target.latitude, target.longitude)
         }
     }
 
@@ -160,6 +177,32 @@ fun InteractiveChargerMap(
         }
     }
 
+    // Spatial marker clustering when zoomed out to maintain 60 FPS smoothness
+    val currentZoom = cameraPositionState.position.zoom
+    val clusters = remember(displayedStations, currentZoom) {
+        if (currentZoom < 11.5f && displayedStations.size > 8) {
+            val clusterList = mutableListOf<StationCluster>()
+            val visited = mutableSetOf<String>()
+            val clusterThresholdDeg = 0.045 // ~5km grid
+
+            for (st in displayedStations) {
+                if (visited.contains(st.id)) continue
+                val group = displayedStations.filter { other ->
+                    !visited.contains(other.id) &&
+                    Math.abs(st.latitude - other.latitude) < clusterThresholdDeg &&
+                    Math.abs(st.longitude - other.longitude) < clusterThresholdDeg
+                }
+                group.forEach { visited.add(it.id) }
+                val avgLat = group.map { it.latitude }.average()
+                val avgLon = group.map { it.longitude }.average()
+                clusterList.add(StationCluster(st.id, avgLat, avgLon, group))
+            }
+            clusterList
+        } else {
+            emptyList()
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -193,26 +236,70 @@ fun InteractiveChargerMap(
                     // Deselect or dismiss
                 }
             ) {
-                displayedStations.forEach { station ->
-                    val isSelected = selectedStation?.id == station.id
-                    val markerState = rememberMarkerState(
-                        key = station.id,
-                        position = LatLng(station.latitude, station.longitude)
-                    )
-
-                    MarkerComposable(
-                        keys = arrayOf<Any>(station.id, isSelected),
-                        state = markerState,
-                        onClick = {
-                            onStationSelect(station)
-                            true
+                if (clusters.isNotEmpty()) {
+                    clusters.forEach { cluster ->
+                        if (cluster.stations.size == 1) {
+                            val station = cluster.stations.first()
+                            val isSelected = selectedStation?.id == station.id
+                            val markerState = rememberMarkerState(
+                                key = station.id,
+                                position = LatLng(station.latitude, station.longitude)
+                            )
+                            MarkerComposable(
+                                keys = arrayOf<Any>(station.id, isSelected),
+                                state = markerState,
+                                onClick = {
+                                    onStationSelect(station)
+                                    true
+                                }
+                            ) {
+                                MapStationPin(station = station, isSelected = isSelected)
+                            }
+                        } else {
+                            val markerState = rememberMarkerState(
+                                key = "cluster_${cluster.id}",
+                                position = LatLng(cluster.centerLat, cluster.centerLon)
+                            )
+                            MarkerComposable(
+                                keys = arrayOf<Any>(cluster.id, cluster.stations.size),
+                                state = markerState,
+                                onClick = {
+                                    coroutineScope.launch {
+                                        cameraPositionState.animate(
+                                            CameraUpdateFactory.newLatLngZoom(
+                                                LatLng(cluster.centerLat, cluster.centerLon),
+                                                cameraPositionState.position.zoom + 2.5f
+                                            )
+                                        )
+                                    }
+                                    true
+                                }
+                            ) {
+                                MapClusterPin(count = cluster.stations.size)
+                            }
                         }
-                    ) {
-
-                        MapStationPin(
-                            station = station,
-                            isSelected = isSelected
+                    }
+                } else {
+                    displayedStations.forEach { station ->
+                        val isSelected = selectedStation?.id == station.id
+                        val markerState = rememberMarkerState(
+                            key = station.id,
+                            position = LatLng(station.latitude, station.longitude)
                         )
+
+                        MarkerComposable(
+                            keys = arrayOf<Any>(station.id, isSelected),
+                            state = markerState,
+                            onClick = {
+                                onStationSelect(station)
+                                true
+                            }
+                        ) {
+                            MapStationPin(
+                                station = station,
+                                isSelected = isSelected
+                            )
+                        }
                     }
                 }
             }
@@ -405,7 +492,10 @@ fun InteractiveChargerMap(
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
                         if (mapsApiKey.isNotBlank()) VoltGreen.copy(alpha = 0.6f) else VoltCyan.copy(alpha = 0.4f)
-                    )
+                    ),
+                    modifier = Modifier
+                        .clickable { showMapplsConfigDialog = true }
+                        .testTag("map_platform_status_badge")
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -419,7 +509,7 @@ fun InteractiveChargerMap(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (mapsApiKey.isNotBlank()) "Maps Live" else "AI Studio Maps",
+                            text = if (mapsApiKey.isNotBlank()) "Maps Live" else "Mappls Status",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (mapsApiKey.isNotBlank()) VoltGreen else VoltCyan
@@ -659,17 +749,22 @@ fun InteractiveChargerMap(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Navigate Button
+                        // Navigate Button with Mappls navigation intent and fallbacks
                         Button(
                             onClick = {
                                 try {
-                                    // Launch external Google Navigation intent if available, and also navigate inside app
+                                    val mapplsUri = Uri.parse("mappls://navigation?destination=${station.latitude},${station.longitude}")
+                                    val mapplsIntent = Intent(Intent.ACTION_VIEW, mapplsUri)
+                                    val geoUri = Uri.parse("geo:${station.latitude},${station.longitude}?q=${station.latitude},${station.longitude}(${Uri.encode(station.name)})")
+                                    val geoIntent = Intent(Intent.ACTION_VIEW, geoUri)
                                     val gmmIntentUri = Uri.parse("google.navigation:q=${station.latitude},${station.longitude}")
                                     val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri).apply {
                                         setPackage("com.google.android.apps.maps")
                                     }
-                                    if (mapIntent.resolveActivity(context.packageManager) != null) {
-                                        context.startActivity(mapIntent)
+                                    when {
+                                        mapplsIntent.resolveActivity(context.packageManager) != null -> context.startActivity(mapplsIntent)
+                                        geoIntent.resolveActivity(context.packageManager) != null -> context.startActivity(geoIntent)
+                                        mapIntent.resolveActivity(context.packageManager) != null -> context.startActivity(mapIntent)
                                     }
                                 } catch (_: Exception) {}
                                 onNavigateClick(station)
@@ -740,6 +835,62 @@ fun InteractiveChargerMap(
                 }
             }
         }
+
+        // Mappls & Maps Integration Details Dialog
+        if (showMapplsConfigDialog) {
+            AlertDialog(
+                onDismissRequest = { showMapplsConfigDialog = false },
+                containerColor = VoltCard,
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Map,
+                        contentDescription = "Map & Navigation Info",
+                        tint = VoltGreen,
+                        modifier = Modifier.size(36.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Map & Navigation Status",
+                        fontWeight = FontWeight.Bold,
+                        color = VoltTextPrimary
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "• Mappls REST APIs: Active in backend for nearby EV search, routing & reverse geocoding.",
+                            fontSize = 13.sp,
+                            color = VoltTextPrimary
+                        )
+                        Text(
+                            text = "• Mappls Navigation: Destination intent wired directly (mappls://navigation?destination=lat,lon) with auto-fallback to device navigation.",
+                            fontSize = 13.sp,
+                            color = VoltTextSecondary
+                        )
+                        Text(
+                            text = "• Native Mappls MapView: Requires Mappls Maven repository credentials (maven.mappls.com) and package SHA-1 registered on apis.mappls.com.",
+                            fontSize = 13.sp,
+                            color = VoltTextSecondary
+                        )
+                        Text(
+                            text = "• Interactive Map Layers: Live dark-mode Google Maps layer + futuristic Vector Radar fallback active.",
+                            fontSize = 13.sp,
+                            color = VoltCyan
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = { showMapplsConfigDialog = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = VoltGreen),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Dismiss", color = VoltDarkBg, fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -782,6 +933,25 @@ fun MapStationPin(
             }
             drawPath(path, pinColor)
         }
+    }
+}
+
+@Composable
+fun MapClusterPin(count: Int) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(VoltCyan)
+            .border(2.dp, Color.White, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "+$count",
+            color = VoltDarkBg,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 14.sp
+        )
     }
 }
 

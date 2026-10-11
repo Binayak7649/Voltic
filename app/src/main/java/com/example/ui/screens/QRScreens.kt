@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,7 +70,7 @@ fun QRScannerScreen(
     val context = LocalContext.current
     var manualInput by remember { mutableStateOf("") }
     var isTorchOn by remember { mutableStateOf(false) }
-    val errorMessage by viewModel.qrErrorMessage.collectAsState()
+    val errorMessage by viewModel.qrErrorMessage.collectAsStateWithLifecycle()
     val presets = remember { viewModel.qrService.getDemoPresets() }
 
     // Camera permission check
@@ -434,10 +435,10 @@ fun ChargerVerificationScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val verification by viewModel.chargerVerification.collectAsState()
-    val selectedPayment by viewModel.selectedPaymentMethod.collectAsState()
-    val isStartingCharging by viewModel.isStartingCharging.collectAsState()
-    val startChargingError by viewModel.startChargingError.collectAsState()
+    val verification by viewModel.chargerVerification.collectAsStateWithLifecycle()
+    val selectedPayment by viewModel.selectedPaymentMethod.collectAsStateWithLifecycle()
+    val isStartingCharging by viewModel.isStartingCharging.collectAsStateWithLifecycle()
+    val startChargingError by viewModel.startChargingError.collectAsStateWithLifecycle()
 
     BackHandler {
         viewModel.navigateTo(Screen.QR_SCANNER)
@@ -881,7 +882,7 @@ fun ChargingReceiptScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val receipt by viewModel.latestReceipt.collectAsState()
+    val receipt by viewModel.latestReceipt.collectAsStateWithLifecycle()
 
     BackHandler {
         viewModel.navigateTo(Screen.MAIN)
@@ -1072,7 +1073,7 @@ fun ChargingHistoryScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val sessions by viewModel.pastSessions.collectAsState()
+    val sessions by viewModel.pastSessions.collectAsStateWithLifecycle()
 
     BackHandler {
         viewModel.navigateTo(Screen.MAIN)
@@ -1123,7 +1124,11 @@ fun ChargingHistoryScreen(
                     }
                 }
             } else {
-                items(sessions, key = { it.id }) { session ->
+                items(
+                    items = sessions,
+                    key = { it.id },
+                    contentType = { "charging_session_card" }
+                ) { session ->
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()

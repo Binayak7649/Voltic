@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.Screen
 import com.example.ui.VoltEliteViewModel
 import com.example.ui.theme.*
@@ -30,7 +31,7 @@ fun TripsScreen(
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val trips by viewModel.trips.collectAsState()
+    val trips by viewModel.trips.collectAsStateWithLifecycle()
 
     Column(
         modifier = modifier
@@ -98,7 +99,11 @@ fun TripsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 90.dp)
         ) {
-            items(trips, key = { it.id }) { trip ->
+            items(
+                items = trips,
+                key = { it.id },
+                contentType = { "trip_card" }
+            ) { trip ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()

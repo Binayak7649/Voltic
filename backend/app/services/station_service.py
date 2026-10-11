@@ -5,11 +5,12 @@ from sqlalchemy.orm import Session, joinedload
 from app.models.station import Station
 from app.models.charger import Charger, ChargerStatus
 from app.services.mappls_service import MapplsService
+from app.services.discovery_service import EVDiscoveryService
 
 class StationService:
     # Short-lived in-memory spatial cache: key -> (timestamp, List[dict])
-    _nearby_cache: Dict[Tuple[float, float, float, Optional[str], bool], Tuple[float, List[dict]]] = {}
-    CACHE_TTL_SECONDS = 60  # 60s cache for high responsiveness without stale data
+    _nearby_cache: Dict[Tuple[float, float, float, Optional[str], Optional[str], bool, bool], Tuple[float, List[dict]]] = {}
+    CACHE_TTL_SECONDS = 90  # 90s cache for high responsiveness without stale data
 
     @staticmethod
     def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -52,6 +53,8 @@ class StationService:
         user_lon: float,
         radius_km: float = 50.0,
         operator: Optional[str] = None,
+        connector_type: Optional[str] = None,
+        fast_only: bool = False,
         cars_only: bool = True,
         limit: Optional[int] = 100,
         offset: int = 0
@@ -62,7 +65,15 @@ class StationService:
         radius_km = max(0.5, min(500.0, float(radius_km)))
 
         # 2. Cache lookup using spatial grid (~100m buckets)
-        cache_key = (round(user_lat, 3), round(user_lon, 3), radius_km, operator.lower() if operator else None, cars_only)
+        cache_key = (
+            round(user_lat, 3),
+            round(user_lon, 3),
+            radius_km,
+            operator.lower() if operator else None,
+            connector_type.lower() if connector_type else None,
+            fast_only,
+            cars_only
+        )
         now = time.time()
         if cache_key in StationService._nearby_cache:
             ts, cached_results = StationService._nearby_cache[cache_key]
@@ -80,7 +91,7 @@ class StationService:
         min_lon = user_lon - lon_delta
         max_lon = user_lon + lon_delta
 
-        # 4. Single optimized query with bounding box and eager loading of chargers (eliminates N+1)
+        # 4. Single optimized query with bounding box and eager loading of chargers
         query = db.query(Station).options(joinedload(Station.chargers)).filter(
             Station.is_active == True,
             Station.latitude.between(min_lat, max_lat),
@@ -90,14 +101,13 @@ class StationService:
             query = query.filter(Station.operator.ilike(f"%{operator}%"))
 
         stations = query.all()
-        results = []
+        results: List[dict] = []
 
         CAR_CONNECTOR_KEYWORDS = ["CCS", "TYPE 2", "TYPE2", "CHADEMO", "BHARAT DC", "DC FAST", "DC ULTRA"]
 
         for st in stations:
             dist = StationService.calculate_distance(user_lat, user_lon, st.latitude, st.longitude)
             if dist <= radius_km:
-                # Use preloaded chargers without issuing additional SQL queries
                 chargers = [c for c in st.chargers if c.is_active]
 
                 # Filter specifically for 4-wheeler EV Car compatible chargers
@@ -109,11 +119,23 @@ class StationService:
                     continue
 
                 active_chargers = car_chargers if cars_only else chargers
+                if connector_type:
+                    active_chargers = [c for c in active_chargers if connector_type.lower() in c.connector_type.lower()]
+                    if not active_chargers:
+                        continue
+
+                max_power = max((c.power_kw for c in active_chargers), default=60)
+                if fast_only and max_power < 50:
+                    continue
+
                 total_ports = len(active_chargers)
                 total_available = sum(1 for c in active_chargers if c.status == ChargerStatus.AVAILABLE)
-                max_power = max((c.power_kw for c in active_chargers), default=60)
                 min_price = min((c.price_per_kwh for c in active_chargers), default=18.5)
                 eta = max(5, int(dist * 2.2))
+
+                data_src = getattr(st, "data_source", None) or "Verified Database"
+                src_id = getattr(st, "source_id", None) or st.id
+                last_upd = st.updated_at.strftime("%Y-%m-%d %H:%M") if st.updated_at else "Recently Verified"
 
                 results.append({
                     "id": st.id,
@@ -137,6 +159,10 @@ class StationService:
                     "amenities": st.amenities.split(",") if st.amenities else [],
                     "operator_verified": st.operator_verified,
                     "is_car_compatible": True,
+                    "data_source": data_src,
+                    "source_id": src_id,
+                    "last_updated": last_upd,
+                    "is_live_status": True,
                     "chargers": [
                         {
                             "id": c.id,
@@ -153,7 +179,17 @@ class StationService:
                     ]
                 })
 
-        # Fetch from Mappls REST API if key is available
+        # Priority 1: Multi-source discovery from Open Charge Map public datasets
+        ocm_stations = EVDiscoveryService.fetch_open_charge_map(user_lat, user_lon, radius_km)
+        if ocm_stations:
+            results = EVDiscoveryService.deduplicate_and_merge(results, ocm_stations)
+
+        # Priority 2: Optional Google Places API if key configured
+        google_stations = EVDiscoveryService.fetch_google_places(user_lat, user_lon, radius_km)
+        if google_stations:
+            results = EVDiscoveryService.deduplicate_and_merge(results, google_stations)
+
+        # Priority 3: Mappls Nearby Places API if configured
         try:
             mappls_stations = MapplsService.fetch_nearby_chargers(
                 user_lat=user_lat,
@@ -162,17 +198,26 @@ class StationService:
                 cars_only=cars_only
             )
             for mst in mappls_stations:
-                is_dup = any(
-                    StationService.calculate_distance(mst["latitude"], mst["longitude"], r["latitude"], r["longitude"]) < 0.1
-                    or mst["name"].strip().lower() == r["name"].strip().lower()
-                    for r in results
-                )
-                if not is_dup:
-                    results.append(mst)
+                mst["data_source"] = "Mappls API"
+                mst["is_live_status"] = False
+                mst["last_updated"] = "Mappls Places Feed"
+            if mappls_stations:
+                results = EVDiscoveryService.deduplicate_and_merge(results, mappls_stations)
         except Exception:
             pass
 
-        # Sort by distance from user's current location
+        # Apply post-filtering for external discovery results
+        if operator:
+            results = [r for r in results if operator.lower() in r["operator"].lower()]
+        if fast_only:
+            results = [r for r in results if r.get("max_power_kw", 0) >= 50]
+        if connector_type:
+            results = [
+                r for r in results
+                if any(connector_type.lower() in c.get("connector_type", "").lower() for c in r.get("chargers", []))
+            ]
+
+        # Sort strictly by distance from user's current location
         results.sort(key=lambda x: x["distance_km"])
 
         # Cache unpaged results

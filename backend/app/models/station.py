@@ -27,9 +27,12 @@ class Station(Base):
     reviews_count = Column(Integer, default=120)
     amenities = Column(String, default="Parking,Cafeteria,Restroom,Wi-Fi,24/7 Support")
     operator_verified = Column(Boolean, default=True)
+    data_source = Column(String, default="database")
+    source_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
     chargers = relationship("Charger", back_populates="station", cascade="all, delete-orphan")
+
 

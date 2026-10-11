@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.model.RecommendedChargingStop
 import com.example.ui.Screen
 import com.example.ui.VoltEliteViewModel
@@ -33,11 +34,11 @@ fun RoutePlannerScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val origin by viewModel.routeOrigin.collectAsState()
-    val dest by viewModel.routeDestination.collectAsState()
-    val evModel by viewModel.selectedVehicleModel.collectAsState()
-    val currentRange by viewModel.currentRangeKm.collectAsState()
-    val routePlan by viewModel.routePlan.collectAsState()
+    val origin by viewModel.routeOrigin.collectAsStateWithLifecycle()
+    val dest by viewModel.routeDestination.collectAsStateWithLifecycle()
+    val evModel by viewModel.selectedVehicleModel.collectAsStateWithLifecycle()
+    val currentRange by viewModel.currentRangeKm.collectAsStateWithLifecycle()
+    val routePlan by viewModel.routePlan.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) {
         if (routePlan == null) {
@@ -354,7 +355,7 @@ fun LiveRouteScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val routePlan by viewModel.routePlan.collectAsState()
+    val routePlan by viewModel.routePlan.collectAsStateWithLifecycle()
     val plan = routePlan ?: viewModel.repository.calculateRoute("Indore", "Bhopal", 180, "Tata Nexon EV")
 
     Column(

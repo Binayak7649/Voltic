@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.model.ChargingNetwork
 import com.example.ui.Screen
 import com.example.ui.VoltEliteViewModel
@@ -30,10 +31,10 @@ fun TripEstimatorScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val distance by viewModel.estimatorDistanceKm.collectAsState()
-    val range by viewModel.estimatorRangeKm.collectAsState()
-    val estimate by viewModel.tripEstimate.collectAsState()
-    val evModel by viewModel.selectedVehicleModel.collectAsState()
+    val distance by viewModel.estimatorDistanceKm.collectAsStateWithLifecycle()
+    val range by viewModel.estimatorRangeKm.collectAsStateWithLifecycle()
+    val estimate by viewModel.tripEstimate.collectAsStateWithLifecycle()
+    val evModel by viewModel.selectedVehicleModel.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -330,7 +331,7 @@ fun SavedLocationsScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val savedLocations by viewModel.savedLocations.collectAsState()
+    val savedLocations by viewModel.savedLocations.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -404,7 +405,7 @@ fun NotificationsScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val notifications by viewModel.notifications.collectAsState()
+    val notifications by viewModel.notifications.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {

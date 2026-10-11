@@ -25,6 +25,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.model.ChargingStation
 import com.example.model.StationStatus
@@ -37,8 +38,8 @@ fun ChargerDetailsScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val station = viewModel.selectedStation.collectAsState().value
-    val bookmarkedIds by viewModel.bookmarkedIds.collectAsState()
+    val station = viewModel.selectedStation.collectAsStateWithLifecycle().value
+    val bookmarkedIds by viewModel.bookmarkedIdsSet.collectAsStateWithLifecycle()
 
     if (station == null) {
         Box(

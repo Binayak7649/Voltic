@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.model.ChargingNetwork
 import com.example.model.ConnectorType
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.Screen
 import com.example.ui.VoltEliteViewModel
 import com.example.ui.components.CircularChargingGauge
@@ -37,7 +38,7 @@ fun ChargingSessionScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
-    val activeSession by viewModel.activeSession.collectAsState()
+    val activeSession by viewModel.activeSession.collectAsStateWithLifecycle()
 
     val currentPercent = activeSession?.currentPercent ?: 68f
     val energyAdded = activeSession?.energyAddedKwh ?: 24.8

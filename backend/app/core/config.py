@@ -49,9 +49,14 @@ class Settings(BaseSettings):
     MAPPLS_CLIENT_ID: str = os.getenv("MAPPLS_CLIENT_ID", "")
     MAPPLS_CLIENT_SECRET: str = os.getenv("MAPPLS_CLIENT_SECRET", "")
 
+    # Multi-source EV Discovery Integration (Open Charge Map & Google Places)
+    OPEN_CHARGE_MAP_API_KEY: str = os.getenv("OPEN_CHARGE_MAP_API_KEY", "")
+    GOOGLE_PLACES_API_KEY: str = os.getenv("GOOGLE_PLACES_API_KEY", os.getenv("GOOGLE_MAPS_API_KEY", os.getenv("GOOGLE_MAPS_PLATFORM_KEY", "")))
+
     # Hardware Simulation
     SIMULATION_MODE: bool = os.getenv("SIMULATION_MODE", "true").lower() == "true"
     SIMULATION_TICK_SECONDS: int = 2
+
 
     class Config:
         case_sensitive = True

@@ -22,6 +22,25 @@ def test_nearby_stations(client):
     first = data["data"][0]
     assert "operator" in first
     assert "distance_km" in first
+    assert "data_source" in first
+
+def test_discovery_status_endpoint(client):
+    res = client.get("/api/stations/discovery/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert "configured_sources" in data["data"]
+    assert "setup_message" in data["data"]
+
+def test_petrol_pump_exclusion():
+    from app.services.discovery_service import EVDiscoveryService
+    # Ordinary petrol pump without EV should be excluded
+    assert EVDiscoveryService.is_strictly_ev_station("Indian Oil Petrol Bunk", "AB Road, Indore", ["gas_station"]) is False
+    assert EVDiscoveryService.is_strictly_ev_station("HP Petrol Pump & Car Service", "Palasia", ["gas_station", "car_repair"]) is False
+    # Verified EV station at fuel pump should be kept
+    assert EVDiscoveryService.is_strictly_ev_station("Jio-bp pulse EV Charging Station", "Bypass Road", ["gas_station", "electric_vehicle_charging_station"]) is True
+    assert EVDiscoveryService.is_strictly_ev_station("Tata Power EZ Charge Station", "Vijay Nagar", []) is True
+
 
 def test_qr_verification_valid(client):
     res = client.post("/api/qr/verify", json={

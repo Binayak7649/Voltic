@@ -11,8 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import com.example.ui.Screen
 import com.example.ui.VoltEliteViewModel
@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun VoltEliteApp(viewModel: VoltEliteViewModel) {
-    val currentScreen by viewModel.currentScreen.collectAsState()
+    val currentScreen by viewModel.currentScreen.collectAsStateWithLifecycle()
 
     // Global back handling for secondary sub-screens
     if (currentScreen != Screen.SPLASH && currentScreen != Screen.WELCOME && currentScreen != Screen.MAIN) {

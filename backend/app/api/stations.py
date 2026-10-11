@@ -47,6 +47,8 @@ def nearby_stations(
     lng: Optional[float] = Query(None, description="Alias for user longitude"),
     radius: float = Query(50.0, ge=0.5, le=500.0, description="Radius in km"),
     operator: Optional[str] = None,
+    connector_type: Optional[str] = Query(None, description="Filter by connector type (e.g. CCS 2, Type 2)"),
+    fast_only: bool = Query(False, description="Filter for DC fast chargers only (>=50kW)"),
     cars_only: bool = Query(True, description="Filter for EV car chargers only"),
     limit: int = Query(100, ge=1, le=200, description="Page limit"),
     offset: int = Query(0, ge=0, description="Page offset"),
@@ -60,11 +62,19 @@ def nearby_stations(
         user_lon=target_lon,
         radius_km=radius,
         operator=operator,
+        connector_type=connector_type,
+        fast_only=fast_only,
         cars_only=cars_only,
         limit=limit,
         offset=offset
     )
     return standard_response(True, f"Found {len(results)} EV car charging stations within {radius} km", results)
+
+@router.get("/discovery/status")
+def get_discovery_status():
+    from app.services.discovery_service import EVDiscoveryService
+    return standard_response(True, "Discovery status retrieved", EVDiscoveryService.get_discovery_status())
+
 
 
 @router.get("/route")
