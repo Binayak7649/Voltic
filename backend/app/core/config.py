@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     SIMULATION_MODE: bool = os.getenv("SIMULATION_MODE", "true").lower() == "true"
     SIMULATION_TICK_SECONDS: int = 2
 
+    # Firebase Authentication & Admin SDK
+    FIREBASE_PROJECT_ID: str = os.getenv("FIREBASE_PROJECT_ID", "voltelite")
+    FIREBASE_SERVICE_ACCOUNT_KEY: str = os.getenv("FIREBASE_SERVICE_ACCOUNT_KEY", "")
+    FIREBASE_AUTH_ENABLED: bool = os.getenv("FIREBASE_AUTH_ENABLED", "true").lower() == "true"
 
     class Config:
         case_sensitive = True

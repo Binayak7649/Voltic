@@ -152,3 +152,8 @@ data class TokenResponseDto(
     @Json(name = "refresh_token") val refreshToken: String,
     @Json(name = "user") val user: Map<String, Any?>
 )
+
+@JsonClass(generateAdapter = true)
+data class FirebaseAuthRequestDto(
+    @Json(name = "id_token") val idToken: String
+)

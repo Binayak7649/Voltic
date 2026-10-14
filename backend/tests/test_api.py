@@ -107,3 +107,31 @@ def test_analytics(client):
     data = res.json()["data"]
     assert "total_charging_sessions" in data
     assert "co2_savings_kg" in data
+
+def test_firebase_auth_invalid_token(client):
+    # Reject invalid Firebase ID token with 401
+    res = client.post("/api/auth/firebase", json={"id_token": "invalid.firebase.token"})
+    assert res.status_code == 401
+
+def test_firebase_user_creation_and_linking(db_session):
+    from app.services.firebase_auth_service import FirebaseAuthService
+    from app.models.user import User
+
+    # Test creating user with stable Firebase UID
+    mock_claims = {
+        "uid": "fb_test_uid_998877",
+        "phone_number": "+919876500001",
+        "name": "Firebase Test Driver",
+        "firebase": {"sign_in_provider": "phone"}
+    }
+    user, err = FirebaseAuthService.authenticate_or_create_firebase_user(db_session, mock_claims)
+    assert err is None
+    assert user is not None
+    assert user.firebase_uid == "fb_test_uid_998877"
+    assert user.phone == "+919876500001"
+    assert user.is_verified is True
+
+    # Test retrieving existing user with same UID
+    user2, err2 = FirebaseAuthService.authenticate_or_create_firebase_user(db_session, mock_claims)
+    assert err2 is None
+    assert user2.id == user.id

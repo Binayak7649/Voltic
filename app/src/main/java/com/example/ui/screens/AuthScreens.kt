@@ -323,9 +323,39 @@ fun WelcomeScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    val activity = context as? android.app.Activity
+                    val isGoogleLoading by viewModel.isGoogleLoading.collectAsState()
+                    val authError by viewModel.authErrorMessage.collectAsState()
+
+                    // Error Banner if Google Auth or other login fails
+                    authError?.let { err ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF3E1F1F),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Warning, contentDescription = "Error", tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(text = err, color = Color(0xFFFFCDD2), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                IconButton(onClick = { viewModel.dismissAuthError() }, modifier = Modifier.size(20.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = Color(0xFFFFCDD2), modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+
                     // Google Sign In Button (Glassmorphic)
                     Button(
-                        onClick = { viewModel.loginWithGoogle() },
+                        onClick = { if (activity != null) viewModel.loginWithGoogle(activity) else viewModel.loginWithGoogle() },
+                        enabled = !isGoogleLoading,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp)
@@ -334,19 +364,25 @@ fun WelcomeScreen(
                         shape = RoundedCornerShape(14.dp),
                         border = androidx.compose.foundation.BorderStroke(1.dp, VoltCardBorder)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.AccountCircle,
-                            contentDescription = "Google",
-                            tint = VoltCyan,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Continue with Google",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = VoltTextPrimary
-                        )
+                        if (isGoogleLoading) {
+                            CircularProgressIndicator(color = VoltCyan, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Signing in...", fontSize = 15.sp, color = VoltCyan)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = "Google",
+                                tint = VoltCyan,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Continue with Google",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = VoltTextPrimary
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -354,6 +390,7 @@ fun WelcomeScreen(
                     // Phone Login Button (Luminous Green)
                     Button(
                         onClick = { viewModel.navigateTo(com.example.ui.Screen.PHONE_LOGIN) },
+                        enabled = !isGoogleLoading,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp)
@@ -405,7 +442,12 @@ fun PhoneLoginScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = context as? android.app.Activity
     var phoneInput by remember { mutableStateOf("9876543210") }
+    val authError by viewModel.authErrorMessage.collectAsState()
+
+    val isPhoneSending by viewModel.isPhoneSending.collectAsState()
 
     Box(
         modifier = modifier
@@ -469,7 +511,7 @@ fun PhoneLoginScreen(
                     lineHeight = 20.sp
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(28.dp))
 
                 // Phone Input Field with +91 Country Badge
                 Row(
@@ -512,11 +554,44 @@ fun PhoneLoginScreen(
                         )
                     )
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // User notice & legal compliance disclosure
+                Text(
+                    text = "By continuing, you may receive an SMS code for authentication. Standard message and data rates apply.",
+                    fontSize = 12.sp,
+                    color = VoltTextMuted,
+                    lineHeight = 16.sp
+                )
+
+                // Error Banner if verification init failed
+                authError?.let { err ->
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF3E1F1F),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Warning, contentDescription = "Error", tint = Color(0xFFFF5252), modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(text = err, color = Color(0xFFFFCDD2), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { viewModel.dismissAuthError() }, modifier = Modifier.size(20.dp)) {
+                                Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = Color(0xFFFFCDD2), modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
             }
 
             Button(
-                onClick = { viewModel.startPhoneAuth(phoneInput) },
-                enabled = phoneInput.length == 10,
+                onClick = { viewModel.startPhoneAuth(phoneInput, activity) },
+                enabled = phoneInput.length == 10 && !isPhoneSending,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp)
@@ -524,12 +599,23 @@ fun PhoneLoginScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = VoltGreen),
                 shape = RoundedCornerShape(14.dp)
             ) {
-                Text(
-                    text = "Send OTP",
-                    color = VoltDarkBg,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                if (isPhoneSending) {
+                    CircularProgressIndicator(color = VoltDarkBg, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "Sending OTP...",
+                        color = VoltDarkBg,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Text(
+                        text = "Send OTP",
+                        color = VoltDarkBg,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
@@ -540,10 +626,13 @@ fun OtpVerifyScreen(
     viewModel: VoltEliteViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = context as? android.app.Activity
     var otpInput by remember { mutableStateOf("749216") }
     val cooldown by viewModel.otpCooldownSeconds.collectAsState()
     val isVerifying by viewModel.isOtpVerifying.collectAsState()
     val phone by viewModel.phoneNumber.collectAsState()
+    val authError by viewModel.authErrorMessage.collectAsState()
 
     Box(
         modifier = modifier
@@ -606,7 +695,7 @@ fun OtpVerifyScreen(
                     color = VoltTextSecondary
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 // OTP Input Field
                 OutlinedTextField(
@@ -628,7 +717,33 @@ fun OtpVerifyScreen(
                     )
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Error banner if OTP verification fails
+                authError?.let { err ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF3E1F1F),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = "Error", tint = Color(0xFFFF5252), modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = err, color = Color(0xFFFFCDD2), fontSize = 12.sp, modifier = Modifier.weight(1f))
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            TextButton(
+                                onClick = { viewModel.verifyOtp("749216") },
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text("Continue in Demo Mode", color = VoltCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -642,7 +757,7 @@ fun OtpVerifyScreen(
                             color = VoltTextSecondary
                         )
                     } else {
-                        TextButton(onClick = { viewModel.resendOtp() }) {
+                        TextButton(onClick = { viewModel.resendOtp(activity) }) {
                             Text(text = "Resend OTP", color = VoltCyan, fontWeight = FontWeight.Bold)
                         }
                     }

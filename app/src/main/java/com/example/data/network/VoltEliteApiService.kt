@@ -8,6 +8,9 @@ interface VoltEliteApiService {
     @POST("api/auth/login")
     suspend fun login(@Body body: LoginRequestDto): Response<BaseApiResponse<TokenResponseDto>>
 
+    @POST("api/auth/firebase")
+    suspend fun loginWithFirebase(@Body body: FirebaseAuthRequestDto): Response<BaseApiResponse<TokenResponseDto>>
+
     @GET("api/stations/nearby")
     suspend fun getNearbyStations(
         @Query("latitude") lat: Double,

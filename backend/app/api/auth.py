@@ -6,9 +6,10 @@ from app.core.security import verify_token
 from app.schemas.auth import (
     RegisterRequest, LoginRequest, TokenResponse,
     SendOtpRequest, SendOtpResponse, VerifyOtpRequest,
-    RefreshTokenRequest
+    RefreshTokenRequest, FirebaseAuthRequest
 )
 from app.services.auth_service import AuthService
+from app.services.firebase_auth_service import FirebaseAuthService
 from app.models.user import User
 from app.api.deps import get_current_user
 from app.utils.helpers import standard_response
@@ -83,6 +84,29 @@ def google_callback(code: str = "mock_code", db: Session = Depends(get_db)):
     user = AuthService.authenticate_or_create_google_user(db, mock_gid, mock_email, mock_name)
     token_data = AuthService.generate_token_payload(user)
     return standard_response(True, "Google authentication successful.", token_data)
+
+@router.post("/firebase")
+def firebase_login(req: FirebaseAuthRequest, db: Session = Depends(get_db)):
+    """
+    Verifies Firebase ID token server-side (for both Phone OTP and Google Sign-In)
+    and synchronizes or creates the user in the VoltElite backend.
+    """
+    claims = FirebaseAuthService.verify_firebase_token(req.id_token)
+    if not claims:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired Firebase ID token."
+        )
+
+    user, err = FirebaseAuthService.authenticate_or_create_firebase_user(db, claims)
+    if err or not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=err or "Could not authenticate Firebase user profile."
+        )
+
+    token_data = AuthService.generate_token_payload(user)
+    return standard_response(True, "Firebase authentication verified successfully.", token_data)
 
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user)):

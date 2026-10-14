@@ -20,7 +20,8 @@ class User(Base):
     profile_image = Column(String, nullable=True)
     role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
     google_id = Column(String, unique=True, nullable=True)
-    auth_provider = Column(String, default="local")  # local, google, phone
+    firebase_uid = Column(String, unique=True, index=True, nullable=True)
+    auth_provider = Column(String, default="local")  # local, google, phone, firebase
     is_verified = Column(Boolean, default=False)
     city = Column(String, default="Indore, Madhya Pradesh")
     created_at = Column(DateTime, default=datetime.utcnow)

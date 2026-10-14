@@ -27,6 +27,21 @@ def get_current_user(
         )
 
     token = auth_header.credentials
+
+    # 1. Attempt Firebase ID token verification first
+    from app.services.firebase_auth_service import FirebaseAuthService
+    firebase_claims = FirebaseAuthService.verify_firebase_token(token)
+    if firebase_claims:
+        user, err = FirebaseAuthService.authenticate_or_create_firebase_user(db, firebase_claims)
+        if err or not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=err or "Invalid Firebase user identity.",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        return user
+
+    # 2. Fall back to internal JWT verification
     payload = verify_token(token)
     if not payload:
         raise HTTPException(

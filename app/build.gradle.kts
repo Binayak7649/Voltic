@@ -47,6 +47,62 @@ fun resolveMapsSecret(): String {
   return ""
 }
 
+fun resolveWebClientId(): String {
+  val envFile = rootProject.file(".env")
+  if (envFile.exists()) {
+    val props = Properties()
+    try {
+      envFile.inputStream().use { stream ->
+        props.load(stream)
+        val k: String? = props.getProperty("GOOGLE_WEB_CLIENT_ID")
+          ?: props.getProperty("FIREBASE_WEB_CLIENT_ID")
+        if (!k.isNullOrBlank() && !k.contains("PLACEHOLDER") && !k.contains("your_google_client_id")) {
+          return k.trim()
+        }
+      }
+    } catch (_: Exception) {}
+  }
+
+  val devEnvJson = file("/app/.dev.env.json")
+  if (devEnvJson.exists()) {
+    try {
+      val text = devEnvJson.readText()
+      val regex1 = """"GOOGLE_WEB_CLIENT_ID"\s*:\s*"([^"]+)"""".toRegex()
+      val regex2 = """"FIREBASE_WEB_CLIENT_ID"\s*:\s*"([^"]+)"""".toRegex()
+      val match = regex1.find(text) ?: regex2.find(text)
+      if (match != null && match.groupValues[1].isNotBlank()) {
+        return match.groupValues[1].trim()
+      }
+    } catch (_: Exception) {}
+  }
+
+  val envKey: String? = System.getenv("GOOGLE_WEB_CLIENT_ID")
+    ?: System.getenv("FIREBASE_WEB_CLIENT_ID")
+  if (!envKey.isNullOrBlank()) {
+    return envKey.trim()
+  }
+
+  // Also check if google-services.json has a client_type 3 oauth_client
+  val gsFile = file("google-services.json")
+  if (gsFile.exists()) {
+    try {
+      val text = gsFile.readText()
+      val regex = """"client_id"\s*:\s*"([^"]+)".*?"client_type"\s*:\s*3""".toRegex(RegexOption.DOT_MATCHES_ALL)
+      val match = regex.find(text)
+      if (match != null && match.groupValues[1].isNotBlank()) {
+        return match.groupValues[1].trim()
+      }
+      val regexAlt = """"client_type"\s*:\s*3.*?"client_id"\s*:\s*"([^"]+)"""".toRegex(RegexOption.DOT_MATCHES_ALL)
+      val matchAlt = regexAlt.find(text)
+      if (matchAlt != null && matchAlt.groupValues[1].isNotBlank()) {
+        return matchAlt.groupValues[1].trim()
+      }
+    } catch (_: Exception) {}
+  }
+
+  return ""
+}
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -60,10 +116,12 @@ android {
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     val resolvedMapsKey = resolveMapsSecret()
+    val resolvedWebClientId = resolveWebClientId()
     manifestPlaceholders["GOOGLE_MAPS_PLATFORM_KEY"] = resolvedMapsKey
     manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = resolvedMapsKey
     buildConfigField("String", "GOOGLE_MAPS_PLATFORM_KEY", "\"$resolvedMapsKey\"")
     buildConfigField("String", "GOOGLE_MAPS_API_KEY", "\"$resolvedMapsKey\"")
+    buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$resolvedWebClientId\"")
   }
 
   signingConfigs {
@@ -114,6 +172,8 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
   ignoreList.add("GOOGLE_MAPS_API_KEY")
   ignoreList.add("GOOGLE_MAPS_PLATFORM_KEY")
+  ignoreList.add("GOOGLE_WEB_CLIENT_ID")
+  ignoreList.add("FIREBASE_WEB_CLIENT_ID")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
@@ -123,6 +183,8 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
+  implementation(libs.firebase.analytics)
+  implementation(libs.firebase.auth)
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.camera.camera2)
@@ -153,12 +215,10 @@ dependencies {
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
 
-  // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google
-  // Sign-In via Credential Manager:
-  // implementation(libs.firebase.auth)
-  // implementation(libs.androidx.credentials)
-  // implementation(libs.androidx.credentials.play.services)
-  // implementation(libs.googleid)
+  // Firebase Auth and Google Sign-In via Credential Manager:
+  implementation(libs.androidx.credentials)
+  implementation(libs.androidx.credentials.play.services)
+  implementation(libs.googleid)
   implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.firebase.appcheck.debug)
   implementation(libs.kotlinx.coroutines.android)
